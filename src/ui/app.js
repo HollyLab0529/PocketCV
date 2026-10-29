@@ -7,7 +7,9 @@ import { exportProfileWorkbook, importProfileWorkbook } from '../infra/xlsx.js';
 import { h, icon, button, inputLabel, saveFile, modal, confirmAction } from './kit.js';
 
 const panel = document.body.dataset.view === 'panel';
-const fillMode = panel && isExtension();   // 面板 + 扩展环境：网页填写模式
+// ?debug=fill ：非扩展环境预览填写模式（本地页面/联调用；扩展内无副作用）
+const panelDebug = panel && new URLSearchParams(location.search).has('debug');
+const fillMode = panel && (isExtension() || panelDebug);   // 面板 + 扩展环境：网页填写模式
 const repo = await createRepository();
 const root = document.getElementById('app');
 const toastRoot = document.getElementById('toast-region');
@@ -30,8 +32,8 @@ const revealed = new Set();    // 已点开显示的敏感字段 id
 // ===== 填写模式状态 =====
 const PREFS_KEY = 'pocketcv.prefs.v1';
 let prefs = (() => {
-  try { const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); return { hideEmpty: raw.hideEmpty !== false }; }
-  catch { return { hideEmpty: true }; }
+  try { const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); return { hideEmpty: raw.hideEmpty === true }; }
+  catch { return { hideEmpty: false }; }
 })();
 const savePrefs = () => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* 仅本次会话生效 */ } };
 let target = null;             // 当前网页填写目标 { tabId, token, label, kind, inputType, origin }
@@ -46,6 +48,22 @@ const toast = (text, error = false) => {
 };
 const errorMessage = (e) => (e instanceof Error ? e.message : String(e));
 const currentModule = () => profile.modules.find((m) => m.id === selected) || profile.modules[0];
+
+/** 清洗外部数据里的垃圾文本（如别的工具导出的 "nullnull"），只处理可空字段 */
+function sanitizeDirtyText(p) {
+  const dirty = (v) => typeof v === 'string' && /^null+$/i.test(v.trim());
+  for (const m of p.modules) {
+    if (dirty(m.name)) m.name = '未命名分类';
+    for (const e of m.entries) {
+      if (dirty(e.title)) e.title = '未命名记录';
+      for (const f of e.fields) {
+        if (dirty(f.group)) f.group = '';
+        if (dirty(f.label)) f.label = '未命名字段';
+      }
+    }
+  }
+  return p;
+}
 
 function updateStatus() {
   const s = stats(profile);
@@ -290,18 +308,120 @@ async function undoFill() {
   }
 }
 
-// ===== 填写模式：字段行 =====
+// ===== 填写模式：字段行（高密度：点行即填，对齐小师弟） =====
 function renderFillField(e, f) {
   const empty = !f.value;
-  const showValue = f.sensitive ? mask(f.value) : (f.value.split('\n')[0] || '—');
-  return h('div', { class: `fill-field${empty ? ' empty' : ''}` },
-    h('div', { class: 'fill-info' },
-      h('span', { class: 'fill-name', text: f.label, title: f.label + (f.group ? ` · ${f.group}` : '') }),
-      h('span', { class: 'fill-value', text: showValue, title: empty ? '' : showValue })),
-    h('div', { class: 'fill-actions' },
-      button('填入 ' + f.label, () => fillField(f), { kind: 'primary small', symbol: 'target', disabled: empty, title: '填入' + f.label }),
-      f.sensitive ? button('查看 ' + f.label, () => viewField(f), { kind: 'quiet icon-only', symbol: 'eye', title: '查看' + f.label }) : null,
-      button('复制 ' + f.label, () => copyField(f), { kind: 'quiet icon-only', symbol: 'copy', title: '复制' + f.label, disabled: empty })));
+  const showValue = f.sensitive && !revealed.has(f.id) ? mask(f.value) : (f.value.split('\n')[0] || '未填写');
+  const row = h('div', { class: `fill-field${empty ? ' empty' : ''}`, role: 'button', tabindex: empty ? '-1' : '0',
+    'aria-label': `填入${f.label}`, title: empty ? `${f.label}：还未填写` : `点击填入${f.label}` },
+    h('span', { class: 'fill-name', text: f.label, title: f.label + (f.group ? ` · ${f.group}` : '') }),
+    f.sensitive ? h('span', { class: 'fill-lock', 'aria-hidden': 'true' }, icon('lock', 12)) : null,
+    h('span', { class: 'fill-value', text: showValue, title: empty ? '' : f.value.split('\n')[0] }),
+    h('span', { class: 'fill-actions', on: { click: (ev) => ev.stopPropagation() } },
+      f.sensitive ? button('', () => { if (revealed.has(f.id)) revealed.delete(f.id); else revealed.add(f.id); render(); }, { kind: 'quiet icon-only', symbol: 'eye', title: (revealed.has(f.id) ? '隐藏' : '查看') + f.label }) : null,
+      !f.sensitive && !empty ? button('', () => aiFieldDialog(f), { kind: 'quiet icon-only', symbol: 'spark', title: `AI 按 JD 改写${f.label}` }) : null,
+      button('', () => copyField(f), { kind: 'quiet icon-only', symbol: 'copy', title: '复制' + f.label, disabled: empty })));
+  // h() 会过滤 null 子节点；切勿改回 row.append(..., 条件 ? x : null, ...)（原生 append 会把字面 null 画成 'null' 文本）
+  if (!empty) {
+    row.addEventListener('click', () => fillField(f));
+    row.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); fillField(f); } });
+  }
+  return row;
+}
+
+/** 单字段 AI 改写：JD 记住上次输入；预览后采纳或复制 */
+async function aiFieldDialog(field) {
+  let config = loadAiConfig();
+  if (!config) {
+    const go = await modal('AI 改写', ({ body, foot, finish }) => {
+      body.append(h('p', { class: 'modal-description', text: `用 AI 按 JD 改写「${field.label}」。首次使用需要先配置一个 OpenAI 兼容接口（API Key 只存本机）。` }));
+      foot.append(h('span', { class: 'spacer' }),
+        button('取消', () => finish(null), { kind: 'quiet' }),
+        button('打开 AI 设置', () => finish(true), { kind: 'primary' }));
+    });
+    if (!go) return;
+    config = await aiSettingsDialog();
+    if (!config) return;
+  }
+  const JD_KEY = 'pocketcv.ai.jd.v1';
+  let lastJd = '';
+  try { lastJd = localStorage.getItem(JD_KEY) || ''; } catch { /* 忽略 */ }
+  const jd = h('textarea', { class: 'ai-jd', rows: 6, placeholder: '粘贴目标岗位 JD（记住上次输入）…', 'aria-label': '目标岗位 JD' });
+  jd.value = lastJd;
+  const orig = h('div', { class: 'ai-orig', text: `原：${field.value.split('\n')[0]}${field.value.includes('\n') ? '…' : ''}`, title: field.value });
+  const status = h('p', { class: 'ai-status', 'data-error': 'true', hidden: true });
+  const action = await modal(`AI 改写 · ${field.label}`, ({ body, foot, finish }) => {
+    const build = () => {
+      body.replaceChildren(
+        inputLabel('目标岗位 JD', jd),
+        orig, status,
+        h('p', { class: 'ai-status', text: 'AI 只基于现有内容改写，不编造；确认前不会写入资料。' }));
+      foot.replaceChildren(h('span', { class: 'spacer' }),
+        button('取消', () => finish(null), { kind: 'quiet' }),
+        button('生成建议', generate, { kind: 'primary' }));
+    };
+    const generate = async () => {
+      const jdText = jd.value.trim();
+      if (jdText.length < 20) { status.hidden = false; status.textContent = '请粘贴更完整的 JD（至少 20 字）。'; return; }
+      try { localStorage.setItem(JD_KEY, jdText); } catch { /* 忽略 */ }
+      body.replaceChildren(h('p', { class: 'modal-description', text: '正在生成建议，最长约 2 分钟…' }));
+      foot.replaceChildren(h('span', { class: 'spacer' }), button('取消', () => finish(null), { kind: 'quiet' }));
+      const system = [
+        '你是求职资料编辑助手。根据目标岗位 JD 改写用户的一条简历字段内容：',
+        '1. 只基于原内容改写，突出与 JD 匹配的关键词；严禁新增、编造任何事实。',
+        '2. 保持原语言与换行结构，不超过原文长度的 1.5 倍。',
+        '3. 输出严格 JSON：{"content":"改写后的内容"}，不要任何解释或代码块。',
+      ].join('\n');
+      let reply;
+      try {
+        reply = await message('AI_CHAT', { baseUrl: config.baseUrl, apiKey: config.apiKey, model: config.model,
+          messages: [{ role: 'system', content: system }, { role: 'user', content: `目标 JD：\n${jdText}\n\n字段「${field.label}」原内容：\n${field.value}\n\n只输出 JSON。` }] });
+      } catch (error) {
+        build();
+        status.hidden = false; status.textContent = errorMessage(error);
+        return;
+      }
+      // 解析单字段建议
+      const text = String(reply?.content || '').replace(/```(?:json)?/gi, '').trim();
+      const s = text.indexOf('{'); const e2 = text.lastIndexOf('}');
+      let content2 = '';
+      if (s >= 0 && e2 > s) { try { const d = JSON.parse(text.slice(s, e2 + 1)); if (typeof d.content === 'string') content2 = d.content; } catch { /* 下方统一提示 */ } }
+      if (!content2.trim() || content2.length > LIMITS.value) {
+        build();
+        status.hidden = false; status.textContent = 'AI 返回中没有可用建议，请重试或换模型。';
+        return;
+      }
+      const box = h('textarea', { class: 'ai-suggest', rows: Math.min(6, Math.max(2, content2.split('\n').length + 1)), value: content2 });
+      body.replaceChildren(
+        h('p', { class: 'modal-description', text: '检查并编辑建议后采纳（写入资料）或复制（不写入）。' }),
+        orig, box);
+      foot.replaceChildren(h('span', { class: 'spacer' }),
+        button('重试', () => { build(); }, { kind: 'quiet' }),
+        button('复制建议', async () => {
+          try { await navigator.clipboard.writeText(box.value.trim()); toast('已复制建议，未写入资料。'); finish(null); } catch (error) { toast(errorMessage(error), true); }
+        }, { kind: 'quiet' }),
+        button('采纳', () => finish(box.value.trim()), { kind: 'primary' }));
+    };
+    build();
+  });
+  if (!action) return;
+  if (!await flush()) { toast('有修改尚未保存成功，已取消。', true); return; }
+  const mutated = clone(profile);
+  for (const m of mutated.modules) for (const e of m.entries) for (const f of e.fields) {
+    if (f.id === field.id) f.value = action;
+  }
+  try {
+    const next = await repo.replaceAll(validateProfile(mutated), 'AI 单字段采纳前');
+    profile = next.profile;
+    revision = profile.revision;
+    epoch = next.epoch;
+    historyInfo = null;
+    dirty = false;
+    render();
+    toast(`「${field.label}」已更新（采纳前版本已存入历史）。`);
+  } catch (error) {
+    toast(errorMessage(error), true);
+  }
 }
 
 // ===== 布局 =====
@@ -320,23 +440,33 @@ function buildShell() {
     if (e.key === 'Escape') { searchInput.value = ''; query = ''; render(); }
   });
 
-  const topbar = h('header', { class: 'topbar' },
-    h('div', { class: 'brand' },
-      h('span', { class: 'brand-glyph', text: '袋' }),
-      h('span', { text: '口袋简历' }),
-      h('span', { class: 'brand-en', text: 'PocketCV' })),
-    h('div', { class: 'search-box', role: 'search' }, icon('search', 14), searchInput),
-    h('div', { class: 'topbar-actions' },
-      (themeBtn = button(`主题 · ${themeName()}`, themeDialog, { kind: 'quiet', symbol: 'settings' })),
-      button('导出', exportDialog, { kind: 'quiet', symbol: 'download' }),
-      button('导入', importDialog, { kind: 'quiet', symbol: 'upload' }),
-      button('AI 定制', aiDialog, { kind: 'quiet', symbol: 'spark' }),
-      button('历史', historyDialog, { kind: 'quiet', symbol: 'history' })));
+  // 填写模式：顶栏只留高频动作，管理动作收进「更多」菜单（对齐小师弟的极简顶栏）
+  const topbar = fillMode
+    ? h('header', { class: 'topbar panel-topbar' },
+        h('div', { class: 'brand' },
+          h('span', { class: 'brand-glyph', text: '袋' }),
+          h('span', { text: '口袋简历' })),
+        h('div', { class: 'search-box', role: 'search' }, icon('search', 14), searchInput),
+        h('div', { class: 'topbar-actions' },
+          (themeBtn = button('主题', themeDialog, { kind: 'quiet icon-only', symbol: 'settings', title: `主题 · ${themeName()}` })),
+          button('更多', moreMenu, { kind: 'quiet icon-only', symbol: 'menu', title: '导出 / 导入 / 历史 / AI 定制' })))
+    : h('header', { class: 'topbar' },
+        h('div', { class: 'brand' },
+          h('span', { class: 'brand-glyph', text: '袋' }),
+          h('span', { text: '口袋简历' }),
+          h('span', { class: 'brand-en', text: 'PocketCV' })),
+        h('div', { class: 'search-box', role: 'search' }, icon('search', 14), searchInput),
+        h('div', { class: 'topbar-actions' },
+          (themeBtn = button(`主题 · ${themeName()}`, themeDialog, { kind: 'quiet', symbol: 'settings' })),
+          button('导出', exportDialog, { kind: 'quiet', symbol: 'download' }),
+          button('导入', importDialog, { kind: 'quiet', symbol: 'upload' }),
+          button('AI 定制', aiDialog, { kind: 'quiet', symbol: 'spark' }),
+          button('历史', historyDialog, { kind: 'quiet', symbol: 'history' })));
 
   navNode = h('nav', { class: 'module-nav', 'aria-label': '资料分类' });
   const navBottom = h('div', { class: 'nav-bottom' },
     fillMode
-      ? button('编辑资料', () => window.open(chrome.runtime.getURL('manager.html'), '_blank'), { kind: 'quiet', symbol: 'edit' })
+      ? button('编辑资料', () => window.open(chrome?.runtime?.getURL ? chrome.runtime.getURL('manager.html') : 'manager.html', '_blank'), { kind: 'quiet', symbol: 'edit' })
       : button('添加分类', addModule, { kind: 'quiet', symbol: 'plus' }));
   const sidebar = h('aside', { class: 'sidebar' }, navNode, navBottom);
   headNode = h('div', { class: 'workspace-head' });
@@ -348,9 +478,27 @@ function buildShell() {
     h('span', { class: 'save-state', id: 'save-state', role: 'status' }, h('span', { class: 'save-dot' }), h('span', { text: '就绪' })),
     h('span', { class: 'spacer' }),
     h('span', { class: 'local-note', text: isExtension() ? '资料保存在本机浏览器' : '独立页面：资料保存在本页浏览器存储' }),
-    button('清除全部资料', eraseAll, { kind: 'quiet danger' }));
+    fillMode ? null : button('清除全部资料', eraseAll, { kind: 'quiet danger' }));
   if (fillMode) bannerNode = h('div', { class: 'banner', role: 'status' });
   root.replaceChildren(topbar, ...(fillMode && bannerNode ? [bannerNode] : []), shell, bottom);
+}
+
+/** 填写模式的「更多」菜单：低频管理动作集中于此 */
+async function moreMenu() {
+  const action = await modal('更多操作', ({ body, foot, finish }) => {
+    body.append(h('p', { class: 'modal-description', text: '填写时用不到的管理动作都收在这里。' }));
+    for (const [label, handler, symbol] of [
+      ['AI 按 JD 定制', aiDialog, 'spark'],
+      ['导出资料 / 空白模板', exportDialog, 'download'],
+      ['导入资料', importDialog, 'upload'],
+      ['本地历史', historyDialog, 'history'],
+    ]) body.append(button(label, () => finish(handler), { kind: 'quiet', symbol }));
+    body.append(h('div', { class: 'menu-gap' }), button('清除全部资料', () => finish('erase'), { kind: 'quiet danger', symbol: 'trash' }));
+    foot.append(h('span', { class: 'spacer' }), button('关闭', () => finish(null), { kind: 'quiet' }));
+  });
+  if (!action) return;
+  if (action === 'erase') await eraseAll();
+  else await action();
 }
 
 function render() {
@@ -396,13 +544,14 @@ function renderHead() {
   const m = currentModule();
   if (!m) { headNode.append(h('h1', { class: 'head-title', text: '我的资料' })); return; }
   const filled = m.entries.reduce((n, e) => n + e.fields.filter((f) => f.value !== '').length, 0);
-  headNode.append(h('h1', { class: 'head-title', text: m.name }),
-    h('span', { class: 'module-tier', text: m.tier }),
-    h('span', { class: 'head-meta', text: `${m.entries.length} 记录 · ${filled} 项已填` }),
-    h('span', { class: 'spacer' }),
-    fillMode ? button(prefs.hideEmpty ? '显示未填' : '隐藏未填', () => { prefs.hideEmpty = !prefs.hideEmpty; savePrefs(); render(); }, { kind: 'quiet' }) : null,
-    fillMode ? null : button('分类设置', () => moduleSettings(m.id), { kind: 'quiet', symbol: 'settings' }),
-    fillMode ? null : button('添加记录', () => addEntry(m.id), { kind: 'quiet', symbol: 'plus' }));
+headNode.append(...[  // 注意：append(字面 null) 会渲染成 'null' 文本，必须先过滤
+  h('h1', { class: 'head-title', text: m.name }),
+  h('span', { class: 'module-tier', text: m.tier }),
+  h('span', { class: 'head-meta', text: `${m.entries.length} 记录 · ${filled} 项已填` }),
+  h('span', { class: 'spacer' }),
+  fillMode ? button(prefs.hideEmpty ? '显示全部' : '只看已填', () => { prefs.hideEmpty = !prefs.hideEmpty; savePrefs(); render(); }, { kind: 'quiet' }) : null,
+  fillMode ? null : button('分类设置', () => moduleSettings(m.id), { kind: 'quiet', symbol: 'settings' }),
+  fillMode ? null : button('添加记录', () => addEntry(m.id), { kind: 'quiet', symbol: 'plus' })].filter(Boolean));
 }
 
 function countMatches() {
@@ -447,6 +596,15 @@ function renderModule() {
     listNode.append(h('div', { class: 'empty-state' },
       h('p', { class: 'modal-description', text: '从添加第一个分类开始整理你的求职资料。' }),
       button('添加分类', addModule, { kind: 'primary', symbol: 'plus' })));
+    return;
+  }
+  // 填写模式下资料全空：给出去处，不要死界面
+  if (fillMode && stats(profile).filled === 0) {
+    listNode.append(h('div', { class: 'empty-state' },
+      h('p', { class: 'modal-description', text: '资料还是空的，先填充内容才能往网页填入。' }),
+      h('div', { class: 'empty-actions' },
+        button('打开编辑资料', () => window.open(chrome?.runtime?.getURL ? chrome.runtime.getURL('manager.html') : 'manager.html', '_blank'), { kind: 'primary', symbol: 'edit' }),
+        button('导出空白模板给 AI 填', exportDialog, { kind: 'quiet', symbol: 'download' }))));
     return;
   }
   if (!m.entries.length) {
@@ -769,6 +927,7 @@ async function importDialog() {
           button('确认替换', () => finish(true), { kind: 'primary' }));
       });
       if (!ok) return;
+      sanitizeDirtyText(validated);   // 拒脏文本于入库之前
       const result = await repo.replaceAll(validated, '导入前');
       profile = result.profile;
       revision = profile.revision;
@@ -1087,6 +1246,7 @@ async function main() {
     profile = result.profile;
     revision = profile.revision;
     epoch = result.epoch;
+    sanitizeDirtyText(profile);   // 清洗历史导入可能带进的 "nullnull" 之类脏文本
   }
   render();
   repo.subscribe((state) => {
@@ -1099,7 +1259,7 @@ async function main() {
   });
   if (fillMode) {
     refreshTarget();
-    chrome.runtime.onMessage.addListener((request) => {
+    chrome?.runtime?.onMessage?.addListener?.((request) => {
       if (request?.type === 'TARGET_UPDATED') refreshTarget();
     });
   }
