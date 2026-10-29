@@ -1,0 +1,80 @@
+<!doctype html>
+<!-- PocketCV 第 5 期测试：空白模板结构 / roundtrip / AI 填写模拟（openpyxl 编辑后导回） -->
+<meta charset="utf-8">
+<title>PocketCV 模板测试</title>
+<body>
+<main>
+  <h3>1. 空白模板自动测试</h3>
+  <pre id="auto">pending…</pre>
+  <h3>2. 下载模板文件（供 openpyxl 模拟「用户 AI 填写」）</h3>
+  <p><a id="tpl-dl" download="pocketcv-template.xlsx">点击下载模板</a></p>
+  <h3>3. AI 填写模拟：编辑后的模板 fetch 后导回</h3>
+  <pre id="edited">等待 fetch ./tmp-edited-template.xlsx（不存在则跳过）</pre>
+  <h3>4. 无法识别的 Excel 提示（非本格式应报错）</h3>
+  <pre id="reject">pending…</pre>
+</main>
+<script type="module">
+import { exportProfileWorkbook, importProfileWorkbook } from '../src/infra/xlsx.js';
+import { templateProfile, stats } from '../src/domain/model.js';
+import { unpackZip } from '../src/infra/zip.js';
+
+const results = [];
+const t = (name, pass, detail = '') => results.push(`${pass ? 'PASS' : 'FAIL'} ${name}${detail ? ' :: ' + detail : ''}`);
+
+// ---- 1. 模板结构 ----
+const tpl = templateProfile();
+t('模板分类齐全', JSON.stringify(tpl.modules.map((m) => m.name)) === JSON.stringify(['基本信息', '教育经历', '实习经历', '项目经历', '专业技能', '获奖荣誉', '自我优势']));
+t('模板内容全空', stats(tpl).filled === 0);
+const phone = tpl.modules[0].entries[0].fields.find((f) => f.label === '手机');
+t('手机字段标记敏感', phone && phone.sensitive === true);
+t('多行字段类型正确', tpl.modules[2].entries[0].fields.some((f) => f.label === '主要职责' && f.type === 'multiline'));
+
+// ---- 2. roundtrip：导出模板 → 导回 ----
+const bytes = exportProfileWorkbook(tpl, { accent: '7d93a8', themeId: 'gray' });
+const back = await importProfileWorkbook(bytes);
+t('roundtrip 分类数', back.profile.modules.length === 7, `${back.profile.modules.length}`);
+t('roundtrip 层级保留', back.profile.modules.every((m) => ['常用', '扩展', '备用'].includes(m.tier)));
+t('roundtrip 内容仍空', stats(back.profile).filled === 0);
+t('roundtrip 敏感标记保留', (() => { const f = back.profile.modules[0].entries[0].fields.find((x) => x.label === '手机'); return f && f.sensitive; })());
+t('来源标记为 pocketcv', back.source === 'pocketcv');
+
+// ---- 3. 帮助页含 AI 用法说明 ----
+const files = await unpackZip(bytes);
+const helpSheet = [...files.entries()].filter(([n]) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n))
+  .map(([n, v]) => new TextDecoder().decode(v)).find((x) => x.includes('用 AI 填写'));
+t('帮助页含「用 AI 填写」指引', !!helpSheet);
+t('帮助页说明结构即格式', helpSheet && helpSheet.includes('结构就是格式'));
+
+// ---- 4. 供下载的链接（openpyxl 编辑用） ----
+const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+document.getElementById('tpl-dl').href = url;
+document.getElementById('auto').textContent = results.join('\n');
+
+// ---- 5. 拒绝非本格式（纯 markdown 夹塞故事的假 xlsx：重打包普通 zip） ----
+try {
+  await importProfileWorkbook(bytes.subarray(0, bytes.length - 1) /* 破坏 EOCD */);
+  t('损坏文件应报错', false);
+} catch (error) {
+  t('损坏文件应报错', /ZIP|不是有效/.test(error.message), error.message);
+}
+document.getElementById('reject').textContent = results.slice(-1).join('\n');
+
+// ---- 6. openpyxl 编辑后的模板导回（模拟用户把模板交给 AI 填写） ----
+try {
+  const edited = new Uint8Array(await (await fetch('./tmp-edited-template.xlsx')).arrayBuffer());
+  const rt = await importProfileWorkbook(edited);
+  const byLabel = (entryTitle, label) => {
+    for (const m of rt.profile.modules) for (const e of m.entries) { const f = e.fields.find((x) => x.label === label); if (f && e.title === entryTitle) return f; }
+    return null;
+  };
+  const more = [];
+  more.push(['AI 填入姓名可导回', byLabel('基本资料', '姓名')?.value === '测试姓名']);
+  more.push(['AI 填入多行职责可导回', byLabel('示例公司 · 岗位', '主要职责')?.value === '负责增长策略\n搭建数据看板']);
+  const phone2 = byLabel('基本资料', '手机');
+  more.push(['敏感字段值与标记保留', phone2?.value === '13800000000' && phone2?.sensitive === true]);
+  more.push(['未填字段仍为空', byLabel('基本资料', '邮箱')?.value === '']);
+  document.getElementById('edited').textContent = (more.every((x) => x[1]) ? '' : '') + more.map(([n, p]) => `${p ? 'PASS' : 'FAIL'} ${n}`).join('\n');
+} catch { document.getElementById('edited').textContent = 'SKIPPED（未找到 tmp-edited-template.xlsx）'; }
+</script>
+</body>
+</html>
