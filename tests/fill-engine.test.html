@@ -1,0 +1,183 @@
+<!doctype html>
+<!-- PocketCV 填表引擎测试：模拟 React 受控组件/select/maxlength/拦截/undo 等 -->
+<meta charset="utf-8">
+<title>PocketCV 填表引擎测试</title>
+<body>
+<script>
+// ===== chrome 扩展 API 桩：记录 FOCUS 上报、捕获 WRITE/UNDO 监听 =====
+window.__focusMsgs = [];
+window.__msgListener = null;
+// 尽量整体定义桩；若宿主 shim 已锁定 window.chrome，则改为补丁其 runtime 方法
+const defineStub = (rt) => {
+  try { rt.id = 'pocketcv-test'; } catch { /* id 只读就算了 */ }
+  rt.sendMessage = (m) => { window.__focusMsgs.push(m); return Promise.resolve({ ok: true }); };
+  rt.onMessage.addListener = (fn) => { window.__msgListener = fn; };
+};
+const fullStub = { runtime: {} };
+defineStub(fullStub.runtime);
+try {
+  Object.defineProperty(window, 'chrome', { value: fullStub, writable: false, configurable: false });
+} catch { /* 宿主已锁定：改为就地补丁 */ }
+if (!(window.chrome && window.chrome.runtime && window.chrome.runtime.id === 'pocketcv-test') && window.chrome && window.chrome.runtime) {
+  defineStub(window.chrome.runtime);
+}
+</script>
+<script src="../bridge/content.js"></script>
+<main id="host">
+  <section>
+    <label>受控姓名（React 模拟）<input id="react-name" type="text" value="旧值"></label>
+    <output id="react-state"></output>
+  </section>
+  <label>普通城市 <input id="plain-city" type="text"></label>
+  <label>学历（select，按文本匹配）<select id="degree" name="degree">
+    <option value="">请选择</option>
+    <option value="bachelor">本科</option>
+    <option value="master">硕士</option>
+  </select></label>
+  <label>城市（select，无法唯一匹配）<select id="ambiguous">
+    <option value="a">北京</option>
+    <option value="b">北京</option>
+  </select></label>
+  <input id="limit-5" type="text" maxlength="5">
+  <input id="blocked" type="text" value="">
+  <input id="other" type="text">
+</main>
+<pre id="result">pending…</pre>
+<script>
+  const results = [];
+  const t = (name, pass, detail = '') => results.push(`${pass ? 'PASS' : 'FAIL'} ${name}${detail ? ' :: ' + detail : ''}`);
+
+  // React 受控组件模拟：劫持实例 value，只有 input 事件后的同步阶段允许写入并回显 state
+  (() => {
+    const input = document.getElementById('react-name');
+    const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    let state = '旧值';
+    let allowWrite = false;
+    Object.defineProperty(input, 'value', {
+      get() { return desc.get.call(input); },
+      set(v) { if (allowWrite) desc.set.call(input, v); },
+    });
+    input.addEventListener('input', () => {
+      state = desc.get.call(input);
+      document.getElementById('react-state').textContent = 'state=' + state;
+      allowWrite = true; desc.set.call(input, state); allowWrite = false; // React 重渲染
+    });
+    input.resetToState = () => { allowWrite = true; desc.set.call(input, state); allowWrite = false; };
+    input.getState = () => state;
+  })();
+
+  // 拦截 beforeinput 的网页
+  document.getElementById('blocked').addEventListener('beforeinput', (e) => e.preventDefault());
+
+  const send = (msg) => new Promise((res) => window.__msgListener(msg, { id: 'pocketcv-test' }, res));
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const lastFocus = () => window.__focusMsgs[window.__focusMsgs.length - 1];
+
+  // 点选输入框：focus() 在页面未聚焦时可能不派发 focusin，必要时补合成事件
+  const focusOn = (el) => {
+    const before = window.__focusMsgs.length;
+    el.focus();
+    if (window.__focusMsgs.length === before) el.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }));
+  };
+
+  async function run() {
+    // 1. focus 上报：点选受控 input 生成 token
+    focusOn(document.getElementById('react-name'));
+    const f1 = lastFocus();
+    t('focus 上报含 token+label', f1?.type === 'FOCUS' && typeof f1.token === 'string' && f1.token.length === 24 && /受控姓名/.test(f1.label), JSON.stringify(f1));
+
+    // 2. 原生 setter + input 事件 写入受控组件
+    const w1 = await send({ type: 'WRITE_FIELD', token: f1.token, value: '徐笑晗' });
+    t('受控组件写入成功', w1.ok && w1.data.characters === 3, JSON.stringify(w1));
+    await sleep(10);
+    t('受控组件 state 已同步', document.getElementById('react-name').getState() === '徐笑晗', 'state=' + document.getElementById('react-name').getState());
+    t('受控组件 DOM 显示正确', document.getElementById('react-state').textContent === 'state=徐笑晗');
+
+    // 3. token 错误 → 拒绝
+    const w2 = await send({ type: 'WRITE_FIELD', token: 'wrong-token', value: 'x' });
+    t('token 不匹配被拒绝', !w2.ok, JSON.stringify(w2));
+
+    // 4. 空值 → 拒绝
+    const w3 = await send({ type: 'WRITE_FIELD', token: f1.token, value: '' });
+    t('空值被拒绝', !w3.ok, JSON.stringify(w3));
+
+    // 5. 焦点移开 → 拒绝
+    focusOn(document.getElementById('other'));
+    const w5 = await send({ type: 'WRITE_FIELD', token: f1.token, value: '无权写入' });
+    t('焦点移开后被拒绝', !w5.ok, JSON.stringify(w5));
+
+    // 6. select 按文本唯一匹配
+    focusOn(document.getElementById('degree'));
+    const w6 = await send({ type: 'WRITE_FIELD', token: lastFocus().token, value: '硕士' });
+    t('select 文本唯一匹配写入', w6.ok && document.getElementById('degree').value === 'master', 'val=' + document.getElementById('degree').value);
+
+    // 7. select 两个同名选项 → 拒绝
+    focusOn(document.getElementById('ambiguous'));
+    const w7 = await send({ type: 'WRITE_FIELD', token: lastFocus().token, value: '北京' });
+    t('select 歧义选项被拒绝', !w7.ok && document.getElementById('ambiguous').value !== 'b', JSON.stringify(w7));
+
+    // 8. maxLength 超限 → 拒绝且不清空
+    focusOn(document.getElementById('limit-5'));
+    const w8 = await send({ type: 'WRITE_FIELD', token: lastFocus().token, value: '超过五个字符的内容' });
+    t('maxLength 超限被拒绝', !w8.ok && document.getElementById('limit-5').value === '', JSON.stringify(w8));
+
+    // 9. beforeinput 拦截 → 拒绝
+    focusOn(document.getElementById('blocked'));
+    const w9 = await send({ type: 'WRITE_FIELD', token: lastFocus().token, value: '被拦截' });
+    t('beforeinput 拦截生效', !w9.ok && document.getElementById('blocked').value === '', JSON.stringify(w9));
+
+    // 10. 撤回：先再写一次受控组件
+    focusOn(document.getElementById('react-name'));
+    await send({ type: 'WRITE_FIELD', token: lastFocus().token, value: '第二版' });
+    await sleep(20);
+    const u1 = await send({ type: 'UNDO_FIELD' });
+    await sleep(20);
+    t('撤回恢复旧内容', u1.ok && document.getElementById('react-name').getState() === '徐笑晗',
+      `state=${document.getElementById('react-name').getState()} resp=${JSON.stringify(u1)}`);
+
+    // 11. 撤回后再撤回 → 无可撤回
+    const u2 = await send({ type: 'UNDO_FIELD' });
+    t('二次撤回被拒绝', !u2.ok, JSON.stringify(u2));
+
+    // 12. 网页内容被用户改动后，撤回被拒绝（防覆盖）
+    focusOn(document.getElementById('react-name'));
+    await send({ type: 'WRITE_FIELD', token: lastFocus().token, value: '第三版' });
+    await sleep(20);
+    const el = document.getElementById('react-name');
+    // 模拟用户手动改值（触发 input）
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, '用户改过');
+    el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    el.resetToState();
+    const u3 = await send({ type: 'UNDO_FIELD' });
+    t('用户改动后撤回被拒绝', !u3.ok && el.getState() === '用户改过',
+      `state=${el.getState()} resp=${JSON.stringify(u3)}`);
+
+    const failed = results.filter((r) => r.startsWith('FAIL'));
+    document.getElementById('result').textContent =
+      `${failed.length ? `❌ ${failed.length} 项失败` : '✅ 全部通过'}（共 ${results.length} 项）\n` + results.join('\n');
+    document.title = failed.length ? `FAIL ${failed.length}/${results.length}` : `PASS ${results.length}`;
+  }
+  window.__runTests = bootRun;
+  // 宿主浏览器可能在页面加载后注入自己的 chrome shim 覆盖本桩。
+  // 等待其稳定后打补丁，并重新加载桥脚本让它绑定到本桩上再运行。
+  function restubRuntime() {
+    if (!(window.chrome && window.chrome.runtime && window.chrome.runtime.id === 'pocketcv-test') && window.chrome && window.chrome.runtime) {
+      defineStub(window.chrome.runtime);
+    }
+  }
+  function bootRun() {
+    return run().catch((e) => {
+      document.title = 'ERROR';
+      document.getElementById('result').textContent = 'ERROR: ' + ((e && e.stack) || e);
+    });
+  }
+  setTimeout(() => {
+    restubRuntime();
+    // 无论桥当初绑定到了哪个对象：清掉防重注入标记并重载，让它绑定到当前（已补丁的）桩上
+    delete window.__pocketcvBridge;
+    const s = document.createElement('script');
+    s.src = '../bridge/content.js';
+    s.onload = () => bootRun();
+    document.head.append(s);
+  }, 1200);
+</script>

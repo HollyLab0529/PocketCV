@@ -1,0 +1,166 @@
+<!doctype html>
+<!-- PocketCV xlsx 模块测试：导出→导入 roundtrip + 小师弟 v2 工作簿迁移 -->
+<meta charset="utf-8">
+<title>PocketCV xlsx 测试</title>
+<body>
+<main>
+  <h3>1. 自动 Roundtrip 测试</h3>
+  <pre id="roundtrip">pending…</pre>
+  <h3>2. 小师弟工作簿迁移（选择 .xlsx 文件）</h3>
+  <input type="file" id="fixture" accept=".xlsx">
+  <pre id="migrate">未选择文件</pre>
+</main>
+<script type="module">
+import { exportProfileWorkbook, importProfileWorkbook, WORKBOOK_FORMAT } from '../src/infra/xlsx.js';
+import { validateProfile, starterProfile, makeModule, makeEntry, makeField, stats, clone } from '../src/domain/model.js';
+
+const results = [];
+const t = (name, pass, detail = '') => results.push(`${pass ? 'PASS' : 'FAIL'} ${name}${detail ? ' :: ' + detail : ''}`);
+
+function buildSample() {
+  const p = starterProfile();
+  p.modules[0].tier = '常用';
+  p.modules[1].tier = '备用';
+  p.modules[2].tier = '扩展';
+  const e0 = p.modules[0].entries[0];
+  e0.fields[0].value = '徐笑晗';
+  e0.fields[1].value = '13800000000';
+  e0.fields[2].value = 'xu@example.com';
+  // 多行 + 特殊字符（XML 转义 & 引号 & 换行）
+  const desc = p.modules[2].entries[0].fields[4];
+  desc.value = '第一行 <负责> "增长" & 转化\n第二行：数字 00123 保前导零';
+  // 备用分类下再加一段记录 + 敏感字段
+  const extra = makeEntry('示例大学 · 研究生', [
+    makeField('学校', '', 'text'),
+    makeField('证件号', '证件', 'text', true),
+  ]);
+  extra.fields[0].value = '示例大学';
+  extra.fields[1].value = '110101199001011234';
+  p.modules[1].entries.push(extra);
+  return validateProfile(p);
+}
+
+async function run() {
+  const before = buildSample();
+  const bytes = exportProfileWorkbook(before, { accent: '7d93a8', themeId: 'haze' });
+  t('导出产出字节', bytes instanceof Uint8Array && bytes.length > 2000, `bytes=${bytes.length}`);
+  const back = await importProfileWorkbook(bytes);
+  t('来源识别为 pocketcv', back.source === 'pocketcv');
+
+  const after = back.profile;
+  const sb = stats(before), sa = stats(after);
+  t('分类数一致', sb.modules === sa.modules, `${sb.modules} vs ${sa.modules}`);
+  t('记录数一致', sb.entries === sa.entries, `${sb.entries} vs ${sa.entries}`);
+  t('字段数一致', sb.fields === sb.fields && before.modules.every((m, i) => m.entries.length === after.modules[i].entries.length), `${sa.entries}`);
+
+  const pick = (p, mi, ei, fi) => p.modules[mi].entries[ei].fields[fi];
+  t('多行含特殊字符保留', pick(after, 2, 0, 4).value === pick(before, 2, 0, 4).value,
+    JSON.stringify(pick(after, 2, 0, 4).value));
+  t('敏感标记保留', pick(after, 1, 1, 1).sensitive === true && pick(after, 1, 1, 1).value === '110101199001011234');
+  t('层级保留（备用）', after.modules[1].tier === '备用', after.modules[1].tier);
+  t('层级保留（扩展）', after.modules[2].tier === '扩展');
+  t('字段类型保留（multiline/email）', pick(after, 2, 0, 4).type === 'multiline' && pick(after, 0, 0, 2).type === 'email');
+  t('ID 原样保留', after.modules[0].id === before.modules[0].id && pick(after, 0, 0, 0).id === pick(before, 0, 0, 0).id);
+
+  // 重新导出再导入（二级 roundtrip，验证导入产物可再导出）
+  const bytes2 = exportProfileWorkbook(after, { accent: '7f9483' });
+  const back2 = await importProfileWorkbook(bytes2);
+  t('二级 roundtrip 稳定', JSON.stringify(stats(back2.profile)) === JSON.stringify(sa));
+
+  // 非法输入拒绝
+  let rejected = false;
+  try { await importProfileWorkbook(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])); }
+  catch { rejected = true; }
+  t('垃圾字节被拒绝', rejected);
+
+  const failed = results.filter((r) => r.startsWith('FAIL'));
+  document.getElementById('roundtrip').textContent =
+    `${failed.length ? `❌ ${failed.length} 项失败` : '✅ 全部通过'}（共 ${results.length} 项）\n` + results.join('\n');
+  document.title = failed.length ? `FAIL ${failed.length}/${results.length}` : `PASS ${results.length}`;
+  await testFixture();
+}
+
+async function testFixture() {
+  const input = document.getElementById('fixture');
+  const out = document.getElementById('migrate');
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    if (!file) { out.textContent = '未选择文件'; return; }
+    migrationTest(new Uint8Array(await file.arrayBuffer()));
+  });
+
+  // 同源托管时可自动拉取 fixture（file:// 下 fetch 会失败则跳过，等待手动选择）
+  try {
+    const res = await fetch('./fixture-xiaoshidi.xlsx');
+    if (res.ok) await migrationTest(new Uint8Array(await res.arrayBuffer()));
+  } catch { /* file:// 或缺少 fixture，忽略 */ }
+
+  // ===== 少用→备用 映射专项：改造 PocketCV 工作簿为小师弟格式 =====
+  try {
+    const { unpackZip, packZip } = await import('../src/infra/zip.js');
+    const target = buildSample();
+    const raw = exportProfileWorkbook(target, {});
+    const files = await unpackZip(raw);
+    const dec = new TextDecoder(), enc = new TextEncoder();
+    const rewrite = (name, pairs) => {
+      let text = dec.decode(files.get(name));
+      for (const [from, to] of pairs) {
+        if (!text.includes(from)) throw new Error(`改写 ${name} 失败：找不到 ${from}`);
+        text = text.split(from).join(to);
+      }
+      files.set(name, enc.encode(text));
+    };
+    rewrite('xl/workbook.xml', [['_PocketCV结构', '_小师弟结构']]);
+    rewrite(`xl/worksheets/sheet${target.modules.length + 2}.xml`, [
+      ['PocketCV workbook 1', 'Xiaoshidi workbook 2'],
+      ['>备用<', '>少用<'],
+    ]);
+    const hostile = packZip(Object.fromEntries(files));
+    const r2 = await importProfileWorkbook(hostile);
+    const tiers2 = r2.profile.modules.map((m) => m.tier);
+    t('伪·小师弟格式 来源识别', r2.source === 'xiaoshidi');
+    t('少用层级映射为备用', r2.profile.modules[1].tier === '备用', `tiers=${tiers2.join('/')}`);
+    t('改造后分类数无损', r2.profile.modules.length === target.modules.length);
+    t('其他层级不受映射影响', r2.profile.modules[0].tier === '常用' && r2.profile.modules[2].tier === '扩展');
+  } catch (error) {
+    t('少用映射专项测试', false, String((error && error.message) || error));
+  }
+
+  const failedFinal = results.filter((r) => r.startsWith('FAIL'));
+  document.getElementById('roundtrip').textContent =
+    `${failedFinal.length ? `❌ ${failedFinal.length} 项失败` : '✅ 全部通过'}（共 ${results.length} 项）\n` + results.join('\n');
+  document.title = failedFinal.length ? `FAIL ${failedFinal.length}/${results.length}` : `PASS ${results.length}`;
+}
+
+async function migrationTest(bytes) {
+  const out = document.getElementById('migrate');
+  const mr = [];
+  const mt = (n, p, d = '') => mr.push(`${p ? 'PASS' : 'FAIL'} ${n}${d ? ' :: ' + d : ''}`);
+  try {
+    const { profile, source } = await importProfileWorkbook(bytes);
+    mt('来源识别为 xiaoshidi', source === 'xiaoshidi', source);
+    const s = stats(profile);
+    let totalFields = 0;
+    for (const m of profile.modules) for (const e of m.entries) totalFields += e.fields.length;
+    mt('分类 8', s.modules === 8, String(s.modules));
+    mt('记录 22', s.entries === 22, String(s.entries));
+    mt('字段 115', totalFields === 115, String(totalFields));
+    const tiers = new Set(profile.modules.map((m) => m.tier));
+    mt('层级映射合法', [...tiers].every((x) => ['常用', '扩展', '备用'].includes(x)), [...tiers].join('/'));
+    mt('层级与 fixture 声明一致（常用/扩展）', [...tiers].join('/') === '常用/扩展', [...tiers].join('/'));
+    mt('字段保留敏感标记', profile.modules.some((m) => m.entries.some((e) => e.fields.some((f) => f.sensitive))));
+    const re = exportProfileWorkbook(profile, {});
+    const rb = await importProfileWorkbook(re);
+    mt('迁移结果可再导出导入', rb.source === 'pocketcv' && stats(rb.profile).modules === 8);
+  } catch (error) {
+    mt('导入发生异常', false, String((error && error.message) || error));
+  }
+  const failedM = mr.filter((r) => r.startsWith('FAIL'));
+  out.textContent = `${failedM.length ? `❌ ${failedM.length} 项失败` : '✅ 全部通过'}（共 ${mr.length} 项）\n` + mr.join('\n');
+}
+
+run().catch((e) => {
+  document.title = 'ERROR';
+  document.getElementById('roundtrip').textContent = 'ERROR: ' + ((e && e.stack) || e);
+});
+</script>
