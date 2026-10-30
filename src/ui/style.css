@@ -43,7 +43,7 @@ body{font:13px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;back
 
 /* 主体：侧边导航 + 工作区 */
 .shell{display:flex;flex:1;min-height:0}
-.sidebar{width:168px;flex-shrink:0;border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;overflow-y:auto}
+.sidebar{width:168px;flex-shrink:0;border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;overflow-y:auto;overflow-x:clip}
 .module-nav{flex:1;padding:10px 8px;display:flex;flex-direction:column;gap:2px}
 .tier-label{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--accent);padding:12px 8px 4px;letter-spacing:.08em}
 .tier-label::after{content:'';flex:1;height:1px;background:var(--line)}
@@ -185,8 +185,8 @@ dialog.modal:not(:has(.modal-foot button)) .modal-foot{display:none}
 /* 侧边栏（面板视图）：保持左侧竖排窄导航，对齐同类插件的高密度布局
    注意：面板宽度通常 < 600px，会命中下方窄窗口媒体查询，这里必须逐一显式覆盖 */
 body[data-view='panel'] .shell{flex-direction:row}
-body[data-view='panel'] .sidebar{width:84px;flex-direction:column;border-bottom:0;overflow-y:auto;overflow-x:hidden}
-body[data-view='panel'] .module-nav{flex-direction:column;align-items:stretch;padding:8px 6px;gap:2px;min-width:0;overflow-x:hidden}
+body[data-view='panel'] .sidebar{width:84px;flex-direction:column;border-bottom:0;overflow-y:auto;overflow-x:clip}
+body[data-view='panel'] .module-nav{flex-direction:column;align-items:stretch;padding:8px 6px;gap:2px;min-width:0;overflow-x:clip}
 body[data-view='panel'] .tier-label{display:block;padding:8px 4px 2px;font-size:10px}
 body[data-view='panel'] .nav-item{width:100%;max-width:100%;padding:5px 6px;gap:5px;font-size:12.5px}
 body[data-view='panel'] .nav-glyph{display:none}
@@ -195,11 +195,13 @@ body[data-view='panel'] .nav-count{display:none}
 body[data-view='panel'] .sidebar .nav-bottom{width:100%;box-sizing:border-box;border-top:1px solid var(--line);padding:6px}
 body[data-view='panel'] .nav-bottom .btn{width:100%;justify-content:center;font-size:12px;padding-left:6px;padding-right:6px}
 body[data-view='panel'] .nav-bottom .btn .icon{display:none}
-body[data-view='panel'] .search-box{max-width:none;flex:1 1 120px;min-width:100px;order:0}
+body[data-view='panel'] .search-box{max-width:none;flex:1 1 60px;min-width:0;order:0}
 body[data-view='panel'] .workspace{padding:10px 12px}
-body[data-view='panel'] .topbar{padding:8px 10px;gap:8px}
-body[data-view='panel'] .fill-value{text-align:right}
-body[data-view='panel'] .banner{gap:6px}
+body[data-view='panel'] .topbar{padding:8px 10px;gap:8px;flex-wrap:nowrap}
+body[data-view='panel'] .fill-value{text-align:left}
+body[data-view='panel'] .banner{gap:6px;row-gap:2px}
+body[data-view='panel'] .banner-text{flex:1 1 calc(100% - 24px)}
+body[data-view='panel'] .banner-target{flex:1;max-width:none;min-width:0}
 body[data-view='panel'] .banner-origin{display:none}
 body[data-view='panel'] .banner .btn{padding:5px 8px;font-size:12px}
 body[data-view='panel'] .banner .btn .icon{display:none}
