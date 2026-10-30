@@ -1482,10 +1482,43 @@ async function main() {
 // 字段包升级：同名分类缺失的默认字段自动补齐（只补不覆盖；每份资料只跑一次，标记存 prefs）
   // 注意：仅在存储确有资料（result.profile）时执行，防止把 fallback 的 starter 覆盖进存储。
   // FIELD_PACK 变更（如新增字段）后存量用户会再补齐一次。
-  const FIELD_PACK = 'fieldPackV4';
+  const FIELD_PACK = 'fieldPackV5';
   if (result.profile && !prefs[FIELD_PACK]) {
+    // v5：拆分「A / B」组合字段为独立字段（网申表单里学历、学位等是分开的输入框）
+    const SPLIT_FIELDS = {
+      '学院 / 专业': ['学院', '专业'],
+      '学历 / 学位': ['学历', '学位'],
+      '绩点 / 排名': ['绩点', '排名'],
+      '个人主页 / 作品集': ['个人主页', '作品集链接'],
+      '级别 / 说明': ['奖项级别', '获奖说明'],
+    };
+    let splitChanged = false;
+    for (const m of profile.modules) {
+      for (const e of m.entries) {
+        for (let i = e.fields.length - 1; i >= 0; i--) {
+          const f = e.fields[i];
+          const targets = SPLIT_FIELDS[f.label];
+          if (!targets) continue;
+          // 仅当值恰好是「A / B」两段时才拆值；其余（含「3.6/4.0」制式写法）整段归第一字段
+          const parts = f.value.split(' / ');
+          const values = parts.length === 2 ? [parts[0].trim(), parts[1].trim()] : [f.value, ''];
+          e.fields.splice(i, 1);
+          let cursor = i;
+          targets.forEach((label, k) => {
+            const exist = e.fields.find((x) => x.label === label);
+            if (exist) {
+              if (!exist.value && values[k]) exist.value = values[k];
+              return;
+            }
+            e.fields.splice(cursor, 0, { ...f, id: uid('f'), label, value: values[k] });
+            cursor += 1;
+          });
+          splitChanged = true;
+        }
+      }
+    }
     const starter = starterProfile();
-    let changed = false;
+    let changed = splitChanged;
     for (const sm of starter.modules) {
       const m = profile.modules.find((x) => x.name === sm.name);
       if (!m || !m.entries.length) continue;
@@ -1499,7 +1532,7 @@ async function main() {
     }
     if (changed) {
       try {
-        const upgraded = await repo.replaceAll(validateProfile(profile), '补齐默认字段');
+        const upgraded = await repo.replaceAll(validateProfile(profile), '拆分组合字段');
         profile = upgraded.profile;
         revision = profile.revision;
         epoch = upgraded.epoch;

@@ -62,16 +62,20 @@ export function starterProfile() {
     makeField('政治面貌', '', 'text'),
     makeField('现居住城市', '', 'text'),
     makeField('户口所在地', '', 'text'),
-    makeField('个人主页 / 作品集', '', 'url'),
+    makeField('个人主页', '', 'url'),
+    makeField('作品集链接', '', 'url'),
   ]));
   // 教育经历
   const edu = makeModule('教育经历');
   edu.entries.push(makeEntry('最高学历', [
     makeField('学校', '', 'text'),
-    makeField('学院 / 专业', '', 'text'),
-    makeField('学历 / 学位', '', 'text'),
+    makeField('学院', '', 'text'),
+    makeField('专业', '', 'text'),
+    makeField('学历', '', 'text'),
+    makeField('学位', '', 'text'),
     makeField('在校时间', '', 'text'),
-    makeField('绩点 / 排名', '', 'text'),
+    makeField('绩点', '', 'text'),
+    makeField('排名', '', 'text'),
     makeField('英语等级', '', 'text'),
     makeField('英语分数', '', 'text'),
     makeField('主修课程', '', 'multiline'),
@@ -117,7 +121,8 @@ export function starterProfile() {
   award.entries.push(makeEntry('荣誉记录', [
     makeField('奖项名称', '', 'text'),
     makeField('获奖时间', '', 'month'),
-    makeField('级别 / 说明', '', 'text'),
+    makeField('奖项级别', '', 'text'),
+    makeField('获奖说明', '', 'text'),
   ]));
   // 自我评价
   const self = makeModule('自我评价', '扩展');
