@@ -33,6 +33,9 @@ export function createStore(driver) {
         const currentEpoch = await readEpoch();
         if (epoch !== currentEpoch) throw new ConflictError();
         const previous = await driver.get(STORE_KEY);
+        // 修订号检查：旧窗口（revision 落后）不得整树覆盖新数据
+        const prevRev = Number(previous?.revision) || 0;
+        if (previous && prevRev !== (Number(rev) || 0)) throw new ConflictError();
         if (checkpoint && previous) await pushHistory(checkpoint, previous);
         const updatedAt = new Date().toISOString();
         const next = { ...profile, revision: (Number(rev) || 0) + 1, updatedAt };
