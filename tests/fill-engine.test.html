@@ -87,11 +87,11 @@ if (!(window.chrome && window.chrome.runtime && window.chrome.runtime.id === 'po
     t('focus 上报含 token+label', f1?.type === 'FOCUS' && typeof f1.token === 'string' && f1.token.length === 24 && /受控姓名/.test(f1.label), JSON.stringify(f1));
 
     // 2. 原生 setter + input 事件 写入受控组件
-    const w1 = await send({ type: 'WRITE_FIELD', token: f1.token, value: '徐笑晗' });
+    const w1 = await send({ type: 'WRITE_FIELD', token: f1.token, value: '测试用户' });
     t('受控组件写入成功', w1.ok && w1.data.characters === 3, JSON.stringify(w1));
     await sleep(10);
-    t('受控组件 state 已同步', document.getElementById('react-name').getState() === '徐笑晗', 'state=' + document.getElementById('react-name').getState());
-    t('受控组件 DOM 显示正确', document.getElementById('react-state').textContent === 'state=徐笑晗');
+    t('受控组件 state 已同步', document.getElementById('react-name').getState() === '测试用户', 'state=' + document.getElementById('react-name').getState());
+    t('受控组件 DOM 显示正确', document.getElementById('react-state').textContent === 'state=测试用户');
 
     // 3. token 错误 → 拒绝
     const w2 = await send({ type: 'WRITE_FIELD', token: 'wrong-token', value: 'x' });
@@ -132,7 +132,7 @@ if (!(window.chrome && window.chrome.runtime && window.chrome.runtime.id === 'po
     await sleep(20);
     const u1 = await send({ type: 'UNDO_FIELD' });
     await sleep(20);
-    t('撤回恢复旧内容', u1.ok && document.getElementById('react-name').getState() === '徐笑晗',
+    t('撤回恢复旧内容', u1.ok && document.getElementById('react-name').getState() === '测试用户',
       `state=${document.getElementById('react-name').getState()} resp=${JSON.stringify(u1)}`);
 
     // 11. 撤回后再撤回 → 无可撤回
