@@ -77,4 +77,4 @@ python3 -m http.server 8765
 
 ## License
 
-MIT © 2026 xiaohanxu0529 (GitHub)
+MIT © 2026 骑着月亮去滑雪 (GitHub)
