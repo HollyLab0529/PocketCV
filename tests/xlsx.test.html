@@ -15,6 +15,7 @@ import { exportProfileWorkbook, importProfileWorkbook, WORKBOOK_FORMAT } from '.
 import { validateProfile, starterProfile, makeModule, makeEntry, makeField, stats, clone } from '../src/domain/model.js';
 
 const results = [];
+const findField = (p, mi, label) => p.modules[mi].entries[0].fields.find((f) => f.label === label);
 const t = (name, pass, detail = '') => results.push(`${pass ? 'PASS' : 'FAIL'} ${name}${detail ? ' :: ' + detail : ''}`);
 
 function buildSample() {
@@ -27,7 +28,7 @@ function buildSample() {
   e0.fields[1].value = '13800000000';
   e0.fields[2].value = 'xu@example.com';
   // 多行 + 特殊字符（XML 转义 & 引号 & 换行）
-  const desc = p.modules[2].entries[0].fields[4];
+  const desc = findField(p, 2, '主修课程');
   desc.value = '第一行 <负责> "增长" & 转化\n第二行：数字 00123 保前导零';
   // 备用分类下再加一段记录 + 敏感字段
   const extra = makeEntry('示例大学 · 研究生', [
@@ -54,12 +55,12 @@ async function run() {
   t('字段数一致', sb.fields === sb.fields && before.modules.every((m, i) => m.entries.length === after.modules[i].entries.length), `${sa.entries}`);
 
   const pick = (p, mi, ei, fi) => p.modules[mi].entries[ei].fields[fi];
-  t('多行含特殊字符保留', pick(after, 2, 0, 4).value === pick(before, 2, 0, 4).value,
-    JSON.stringify(pick(after, 2, 0, 4).value));
+  const afterDesc = findField(after, 2, '主修课程');
+  t('多行含特殊字符保留', afterDesc.value === findField(before, 2, '主修课程').value, JSON.stringify(afterDesc.value));
   t('敏感标记保留', pick(after, 1, 1, 1).sensitive === true && pick(after, 1, 1, 1).value === '110101199001011234');
   t('层级保留（备用）', after.modules[1].tier === '备用', after.modules[1].tier);
   t('层级保留（扩展）', after.modules[2].tier === '扩展');
-  t('字段类型保留（multiline/email）', pick(after, 2, 0, 4).type === 'multiline' && pick(after, 0, 0, 2).type === 'email');
+  t('字段类型保留（multiline/email）', findField(after, 2, '主修课程').type === 'multiline' && findField(after, 1, '邮箱').type === 'email');
   t('ID 原样保留', after.modules[0].id === before.modules[0].id && pick(after, 0, 0, 0).id === pick(before, 0, 0, 0).id);
 
   // 重新导出再导入（二级 roundtrip，验证导入产物可再导出）

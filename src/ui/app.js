@@ -98,8 +98,23 @@ async function flush() {
     // 只回写标量字段、保留原树引用：输入框闭包仍指向这棵树，避免第二次编辑丢失。
     profile.updatedAt = result.profile.updatedAt;
     profile.revision = result.profile.revision;
+    revision = result.profile.revision;   // 同步模块级修订号，否则下次保存会因修订号落后被拒
     return true;
   } catch (error) {
+    if (error.code === 'CONFLICT') {
+      // 其他页面已保存更新版本：重载最新资料（本页未保存的编辑已基于旧版本，无法直接落盘）
+      dirty = false;
+      saveError = '';
+      const fresh = await repo.load().catch(() => null);
+      if (fresh?.profile) {
+        profile = fresh.profile;
+        revision = profile.revision;
+        epoch = fresh.epoch;
+        render();
+      }
+      toast('其他页面已保存了新版本，本页已重新载入最新资料，请重试刚才的修改。', true);
+      return false;
+    }
     dirty = true;
     saveError = errorMessage(error);
     updateStatus();
@@ -613,6 +628,7 @@ function buildShell() {
         h('div', { class: 'search-box', role: 'search' }, icon('search', 14), searchInput),
         h('div', { class: 'topbar-actions' },
           (themeBtn = button(`主题 · ${themeName()}`, themeDialog, { kind: 'quiet', symbol: 'settings' })),
+          button('保存', () => { flush().then((ok) => { toast(ok ? '已保存到本机。' : '保存失败，请重试。', !ok); }); }, { kind: 'primary', symbol: 'check', title: '立即保存（Ctrl S）' }),
           button('导出', exportDialog, { kind: 'quiet', symbol: 'download' }),
           button('导入', importDialog, { kind: 'quiet', symbol: 'upload' }),
           button('AI 导入', aiImportDialog, { kind: 'quiet', symbol: 'scan' }),
@@ -823,7 +839,7 @@ function renderField(e, f) {
     h('span', { class: 'spacer' }),
     h('span', { class: 'field-type', text: f.sensitive ? '敏感' : TYPE_NAMES[f.type] || '' }),
     button('编辑字段 ' + f.label, () => editField(e.id, f.id), { kind: 'quiet icon-only', symbol: 'edit', title: '编辑字段：' + f.label }));
-  return h('div', { class: 'field' }, labelRow, control);
+  return h('div', { class: f.type === 'multiline' ? 'field field-wide' : 'field' }, labelRow, control);
 }
 
 const inputType = (type) => ({ email: 'email', tel: 'tel', number: 'text', date: 'text', month: 'text', url: 'url' }[type] || 'text');
@@ -1393,10 +1409,11 @@ async function main() {
   buildShell();
   const result = await repo.load();
   if (!result.profile) {
+    // 存储为空（首次使用或读取异常）：只在内存展示 starter，绝不写回——
+    // 写回会把其他页面刚保存的数据无痕覆盖；首次编辑保存时自然落盘。
     profile = starterProfile();
+    revision = 0;
     epoch = result.epoch;
-    await repo.save(profile, 0, '', epoch);
-    revision = profile.revision;
   } else {
     profile = result.profile;
     revision = profile.revision;
@@ -1415,7 +1432,8 @@ async function main() {
     }
   }
   // 字段包升级：同名分类缺失的默认字段自动补齐（只补不覆盖；每份资料只跑一次，标记存 prefs）
-  if (!prefs.fieldPackV3) {
+  // 注意：仅在存储确有资料（result.profile）时执行，防止把 fallback 的 starter 覆盖进存储。
+  if (result.profile && !prefs.fieldPackV3) {
     const starter = starterProfile();
     let changed = false;
     for (const sm of starter.modules) {
@@ -1459,8 +1477,10 @@ async function main() {
     });
   }
   window.addEventListener('beforeunload', (event) => {
-    if (dirty || saving) { event.preventDefault(); event.returnValue = ''; }
+    if (dirty || saving) { flush(); event.preventDefault(); event.returnValue = ''; }
   });
+  // 切到后台/最小化时立即落盘：防抖窗口内的编辑不因关页丢失
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && dirty) flush(); });
   document.addEventListener('keydown', (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === 's') {
       event.preventDefault();
