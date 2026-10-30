@@ -32,8 +32,8 @@ const revealed = new Set();    // 已点开显示的敏感字段 id
 // ===== 填写模式状态 =====
 const PREFS_KEY = 'pocketcv.prefs.v1';
 let prefs = (() => {
-  try { const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); return { hideEmpty: raw.hideEmpty === true }; }
-  catch { return { hideEmpty: false }; }
+  try { const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); return { hideEmpty: raw.hideEmpty === true, zoom: typeof raw.zoom === 'string' ? raw.zoom : '' }; }
+  catch { return { hideEmpty: false, zoom: '' }; }
 })();
 const savePrefs = () => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* 仅本次会话生效 */ } };
 let target = null;             // 当前网页填写目标 { tabId, token, label, kind, inputType, origin }
@@ -48,6 +48,11 @@ const toast = (text, error = false) => {
 };
 const errorMessage = (e) => (e instanceof Error ? e.message : String(e));
 const currentModule = () => profile.modules.find((m) => m.id === selected) || profile.modules[0];
+
+// 字体大小：用 zoom 整体缩放（px 字号同步变大变小），偏好存本机
+const ZOOMS = [['0.9', '小'], ['', '标准'], ['1.15', '大'], ['1.3', '特大']];
+const applyZoom = () => { document.documentElement.style.zoom = prefs.zoom || ''; };
+applyZoom();   // 恢复本机字体大小偏好（须在渲染前）
 
 /** 清洗外部数据里的垃圾文本（如别的工具导出的 "nullnull"），只处理可空字段 */
 function sanitizeDirtyText(p) {
@@ -203,6 +208,35 @@ async function themeDialog() {
       h('span', { class: 'theme-tag', text: t.tag }),
       h('span', { class: 'spacer' }),
       t.id === themeId ? h('span', { class: 'theme-check', text: '✓' }) : null));
+    }
+    body.append(list);
+    foot.append(h('span', { class: 'spacer' }), button('完成', () => finish(null), { kind: 'primary' }));
+  });
+}
+
+/** 字体大小：点选立即生效，偏好存本机（zoom 整体缩放） */
+async function fontDialog() {
+  await modal('字体大小', ({ body, foot, finish }) => {
+    body.append(h('p', { class: 'modal-description', text: '默认字号偏小时可选大一号，设置保存在本机。' }));
+    const list = h('div', { class: 'theme-list' });
+    const paint = () => [...list.children].forEach((row, i) => {
+      row.dataset.active = String((ZOOMS[i][0] || '') === prefs.zoom);
+      row.querySelector('.theme-check')?.remove();
+      if ((ZOOMS[i][0] || '') === prefs.zoom) row.append(h('span', { class: 'theme-check', text: '✓' }));
+    });
+    for (const [zoom, label] of ZOOMS) {
+      list.append(h('button', {
+        type: 'button', class: 'theme-row', 'data-active': String((zoom || '') === prefs.zoom),
+        on: { click: () => {
+          prefs.zoom = zoom;
+          savePrefs();
+          applyZoom();
+          paint();
+        } },
+      },
+      h('span', { text: label, style: `font-size:${zoom ? `${13 * parseFloat(zoom)}px` : '13px'}` }),
+      h('span', { class: 'spacer' }),
+      (zoom || '') === prefs.zoom ? h('span', { class: 'theme-check', text: '✓' }) : null));
     }
     body.append(list);
     foot.append(h('span', { class: 'spacer' }), button('完成', () => finish(null), { kind: 'primary' }));
@@ -630,11 +664,12 @@ function buildShell() {
           button('AI 识别简历', aiImportDialog, { kind: 'accent', symbol: 'scan', title: '粘贴简历原文，AI 自动提取到对应分类字段（不编造，先预览再导入）' }),
           button('AI 按 JD 定制', aiDialog, { kind: 'accent', symbol: 'spark', title: '粘贴职位描述（JD），AI 只基于现有内容改写相关字段' }),
           button('更多', () => moreMenu([
+            ['字体大小', fontDialog, 'type'],
             ['主题 · ' + themeName(), themeDialog, 'settings'],
             ['导出资料 / 空白模板', exportDialog, 'download'],
             ['导入资料文件', importDialog, 'upload'],
             ['本地历史版本', historyDialog, 'history'],
-          ]), { kind: 'quiet', symbol: 'menu', title: '主题 / 导出 / 导入 / 历史' })));
+          ]), { kind: 'quiet', symbol: 'menu', title: '字体 / 主题 / 导出 / 导入 / 历史' })));
 
   navNode = h('nav', { class: 'module-nav', 'aria-label': '资料分类' });
   const navBottom = h('div', { class: 'nav-bottom' },
@@ -661,6 +696,7 @@ function buildShell() {
 async function moreMenu(actions = [
   ['AI 一键识别简历', aiImportDialog, 'scan'],
   ['AI 按 JD 定制', aiDialog, 'spark'],
+  ['字体大小', fontDialog, 'type'],
   ['导出资料 / 空白模板', exportDialog, 'download'],
   ['导入资料文件', importDialog, 'upload'],
   ['本地历史版本', historyDialog, 'history'],
@@ -971,6 +1007,10 @@ async function addField(entryId) {
   if (!found) return;
   const result = await fieldForm('添加字段', { label: '', group: '', type: 'text', sensitive: false });
   if (!result) return;
+  if (found.entry.fields.some((f) => f.label === result.label)) {
+    toast(`同一条记录里已有「${result.label}」，请直接编辑原字段，或换个名称。`, true);
+    return;
+  }
   commit((p) => {
     getEntry(p, entryId).entry.fields.push(makeField(result.label, result.group, result.type, result.sensitive));
   });
@@ -1432,9 +1472,11 @@ async function main() {
       } catch { /* 升级失败则保留原样 */ }
     }
   }
-  // 字段包升级：同名分类缺失的默认字段自动补齐（只补不覆盖；每份资料只跑一次，标记存 prefs）
+// 字段包升级：同名分类缺失的默认字段自动补齐（只补不覆盖；每份资料只跑一次，标记存 prefs）
   // 注意：仅在存储确有资料（result.profile）时执行，防止把 fallback 的 starter 覆盖进存储。
-  if (result.profile && !prefs.fieldPackV3) {
+  // FIELD_PACK 变更（如新增字段）后存量用户会再补齐一次。
+  const FIELD_PACK = 'fieldPackV4';
+  if (result.profile && !prefs[FIELD_PACK]) {
     const starter = starterProfile();
     let changed = false;
     for (const sm of starter.modules) {
@@ -1454,11 +1496,11 @@ async function main() {
         profile = upgraded.profile;
         revision = profile.revision;
         epoch = upgraded.epoch;
-        prefs.fieldPackV3 = true;
+        prefs[FIELD_PACK] = true;
         savePrefs();
       } catch { /* 升级失败下次加载重试 */ }
     } else {
-      prefs.fieldPackV3 = true;
+      prefs[FIELD_PACK] = true;
       savePrefs();
     }
   }

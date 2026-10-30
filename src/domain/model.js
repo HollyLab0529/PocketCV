@@ -72,6 +72,8 @@ export function starterProfile() {
     makeField('学历 / 学位', '', 'text'),
     makeField('在校时间', '', 'text'),
     makeField('绩点 / 排名', '', 'text'),
+    makeField('英语等级', '', 'text'),
+    makeField('英语分数', '', 'text'),
     makeField('主修课程', '', 'multiline'),
   ]));
   // 实习经历
@@ -106,6 +108,7 @@ export function starterProfile() {
   const skill = makeModule('专业技能', '扩展');
   skill.entries.push(makeEntry('技能清单', [
     makeField('专业技能', '', 'multiline'),
+    makeField('办公 / 设计工具', '', 'text'),
     makeField('语言能力', '', 'text'),
     makeField('证书', '', 'text'),
   ]));
