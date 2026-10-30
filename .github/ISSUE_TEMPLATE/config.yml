@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 📖 使用文档
+    url: https://github.com/HollyLab0529/PocketCV#readme
+    about: 安装、导入导出、AI 配置等说明都在 README 里
