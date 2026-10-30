@@ -11,24 +11,40 @@
   .row label{width:110px;flex-shrink:0;text-align:right;color:#555}
   .row input,.row select,.row textarea{flex:1;padding:7px 9px;border:1px solid #ccc;border-radius:6px;font:inherit}
   .tip{color:#888;font-size:12px}
+  fieldset{border:1px dashed #bbb;border-radius:8px;margin:18px 0;padding:6px 14px}
+  legend{font-size:12.5px;color:#888;padding:0 6px}
 </style>
 </head>
 <body>
-<h1>模拟网申表单（用于本地联调批量补齐）</h1>
-<p class="tip">本页只在本机 http 服务下打开，用于验证扫描 / 匹配 / 批量写入 / 批量撤回，不含任何真实网站代码。</p>
+<h1>模拟网申表单（上传简历后网站自动解析）</h1>
+<p class="tip">本页只在本机 http 服务下打开，用于验证扫描 / 匹配 / 差异核对 / 批量写入 / 批量撤回，不含任何真实网站代码。</p>
 <form onsubmit="return false">
-  <div class="row"><label for="name">姓名</label><input id="name" name="name" placeholder="请输入姓名"></div>
-  <div class="row"><label for="phone">手机号码</label><input id="phone" name="phone" type="tel" placeholder="请输入手机号"></div>
-  <div class="row"><label for="mail">电子邮箱</label><input id="mail" name="mail" type="email" placeholder="请输入邮箱"></div>
-  <div class="row"><label for="school">毕业院校</label><input id="school" name="school" placeholder="请输入学校名称"></div>
-  <div class="row"><label for="major">专业名称</label><input id="major" name="major" placeholder="请输入所学专业"></div>
-  <div class="row"><label for="degree">最高学历</label><input id="degree" name="degree" placeholder="本科 / 硕士 / 博士"></div>
-  <div class="row"><label for="salary">期望月薪</label>
-    <select id="salary" name="salary">
-      <option value="">请选择</option><option value="面议">面议</option><option value="10k-15k">10k-15k</option><option value="15k-25k">15k-25k</option><option value="25k以上">25k以上</option>
-    </select></div>
-  <div class="row"><label for="self">自我介绍</label><textarea id="self" name="self" rows="4" placeholder="请输入自我介绍"></textarea></div>
-  <div class="row"><label for="filled">已填写的框</label><input id="filled" name="filled" value="这一项已经有内容，不应被扫描到"></div>
+  <fieldset>
+    <legend>① 网站解析正确（值与资料一致，不应进入核对清单）</legend>
+    <div class="row"><label for="mail2">电子邮箱</label><input id="mail2" name="mail2" type="email" value="test@example.com"></div>
+  </fieldset>
+  <fieldset>
+    <legend>② 网站解析有误（应进入「不一致」清单，可勾选改成资料值）</legend>
+    <div class="row"><label for="name">姓名</label><input id="name" name="name" value="侧试用户（OCR 错字）"></div>
+    <div class="row"><label for="degree">最高学历</label><input id="degree" name="degree" value="专科"></div>
+    <div class="row"><label for="salary">期望月薪</label>
+      <select id="salary" name="salary">
+        <option value="">请选择</option><option value="10k-15k" selected>10k-15k</option><option value="面议">面议</option><option value="15k-25k">15k-25k</option><option value="25k以上">25k以上</option>
+      </select></div>
+  </fieldset>
+  <fieldset>
+    <legend>③ 网站没解析出来（空框，应进入「待补齐」清单）</legend>
+    <div class="row"><label for="phone">手机号码</label><input id="phone" name="phone" type="tel" placeholder="请输入手机号"></div>
+    <div class="row"><label for="school">毕业院校</label><input id="school" name="school" placeholder="请输入学校名称"></div>
+    <div class="row"><label for="major">专业名称</label><input id="major" name="major" placeholder="请输入所学专业"></div>
+    <div class="row"><label for="self">自我介绍</label><textarea id="self" name="self" rows="4" placeholder="请输入自我介绍"></textarea></div>
+  </fieldset>
+  <fieldset>
+    <legend>④ 特殊控件（password 不扫描；file 不扫描；未识别空框进提示清单）</legend>
+    <div class="row"><label for="pwd">登录密码</label><input id="pwd" name="pwd" type="password" value="secret"></div>
+    <div class="row"><label for="cv">简历文件</label><input id="cv" name="cv" type="file"></div>
+    <div class="row"><label for="q7">婚育状态</label><input id="q7" name="q7" placeholder="资料里没有对应字段"></div>
+  </fieldset>
 </form>
 </body>
 </html>

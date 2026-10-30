@@ -1,5 +1,5 @@
-// 口袋简历 PocketCV · 空框匹配器：把网页扫描到的空输入框与资料字段对应起来
-// 置信度：exact（完全同名）> synonym（同义词表命中）> fuzzy（包含关系）；未匹配的框不进入补齐清单
+// 口袋简历 PocketCV · 表单匹配器：把网页扫描到的输入框与资料字段对应起来
+// 置信度：exact（完全同名）> synonym（同义词表命中）> fuzzy（包含关系）；未匹配的框留给用户逐个点填
 
 const SYNONYMS = {
   '姓名': ['名字', '真实姓名', '考生姓名', '申请人姓名'],
@@ -61,6 +61,12 @@ export const norm = (s) => String(s || '')
   .replace(/\（|\）/g, () => '')
   .replace(/[\s*＊:：、，,．.·|｜\-—_()（）?？]/g, '')
   .toLowerCase();
+
+// 网站已填值与资料值是否一致（归一后等值；前后缀差异算不一致，交给用户判断）
+export const sameValue = (a, b) => {
+  const x = norm(a), y = norm(b);
+  return !x || !y ? true : x === y;
+};
 
 // 把页面框的 label 拆成候选关键词：取「｜」前后两段分别参与匹配
 const labelParts = (label) => String(label || '').split(/[｜|]/).flatMap((part) => part.split(/[\s/·]+/)).map(norm).filter(Boolean);

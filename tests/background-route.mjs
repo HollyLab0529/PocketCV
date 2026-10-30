@@ -1,5 +1,5 @@
-// background.js 批量补齐路由 mock 测试（Node 直跑，不需要浏览器）
-// 验证 SCAN_EMPTY 去重、BATCH_FILL 按 frameId 分组、UNDO_FILL 批量撤回分支
+// background.js 表单核对路由 mock 测试（Node 直跑，不需要浏览器）
+// 验证 SCAN_PAGE 去重附 frameId、BATCH_FILL 按 frameId 分组、UNDO_FILL 批量撤回分支
 const EXT_ID = 'ext-test-id';
 const TAB_ID = 7;
 
@@ -9,13 +9,13 @@ const publishes = [];
 
 const scriptingCalls = [];
 
-// 模拟两个 frame 的 content 脚本：frame 0 有 8 个框（其中 1 个与 frame 0 重复 label 用于验证去重）
+// 模拟两个 frame 的 content 脚本：frame 0 有数框（其中 1 个重复 label 用于验证去重）
 const contentFrames = {
   0: {
     scan: [
-      { index: 0, label: '姓名｜姓名', kind: 'input', inputType: 'text' },
-      { index: 1, label: '手机号码｜手机', kind: 'input', inputType: 'tel' },
-      { index: 0, label: '姓名｜姓名', kind: 'input', inputType: 'text' }, // 重复，应被去重
+      { index: 0, value: '', label: '姓名｜姓名', kind: 'input', inputType: 'text' },
+      { index: 1, value: '旧值', label: '手机号码｜手机', kind: 'input', inputType: 'tel' },
+      { index: 0, value: '', label: '姓名｜姓名', kind: 'input', inputType: 'text' }, // 重复，应被去重
     ],
     fill(items) {
       return {
@@ -61,7 +61,7 @@ globalThis.chrome = {
     sendMessage: async (tabId, msg, opts) => {
       contentCalls.push({ tabId, msg, opts });
       const frame = contentFrames[msg.frameIdHint ?? opts?.frameId ?? 0] ?? {};
-      if (msg.type === 'SCAN_EMPTY') return { ok: true, data: frame.scan || [] };
+      if (msg.type === 'SCAN_PAGE') return { ok: true, data: frame.scan || [] };
       if (msg.type === 'BATCH_FILL') return { ok: true, data: frame.fill(msg.items) };
       if (msg.type === 'UNDO_BATCH') return { ok: true, data: { restored: frame.restored ?? 0 } };
       return { ok: false, error: 'unknown' };
@@ -89,12 +89,13 @@ const check = (name, cond, detail) => {
   else { fail++; console.log(`  ✗ ${name} ${detail ?? ''}`); }
 };
 
-// 1. SCAN_EMPTY：去重、附 frameId
+// 1. SCAN_PAGE：去重、附 frameId、携带已填值
 {
-  console.log('[SCAN_EMPTY]');
-  const res = await send({ type: 'SCAN_EMPTY' });
+  console.log('[SCAN_PAGE]');
+  const res = await send({ type: 'SCAN_PAGE' });
   check('成功，去重后 2 项', res.ok === true && res.data.length === 2, JSON.stringify(res));
   check('附 frameId=0', res.data[0].frameId === 0);
+  check('携带已填值（手机号码=旧值）', res.data[1].value === '旧值', JSON.stringify(res.data[1]));
   check('connect 确保注入', scriptingCalls.length >= 1, 'executeScript 未被调用');
 }
 
@@ -137,7 +138,7 @@ const check = (name, cond, detail) => {
   const call = (request) => new Promise((resolve) => {
     listener(request, { id: 'other-ext', url: 'https://evil.example.com/panel.html' }, resolve);
   });
-  const res = await call({ type: 'SCAN_EMPTY' });
+  const res = await call({ type: 'SCAN_PAGE' });
   check('外部来源被拒', res.ok === false && res.code === 'FORBIDDEN', JSON.stringify(res));
 }
 

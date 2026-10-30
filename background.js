@@ -136,15 +136,15 @@ chrome.runtime.onMessage.addListener((request, sender, respond) => {
         publish();
         return result.data;
       }
-      // ===== 批量补齐：扫描空框 → 匹配后的批量写入 / 批量撤回 =====
-      case 'SCAN_EMPTY': {
+      // ===== 一键处理本页表单：扫描全部输入框 → 匹配后的批量写入 / 批量撤回 =====
+      case 'SCAN_PAGE': {
         const tab = await activeTab();
         await connect(tab.id);   // 确保主文档与各 frame 已注入
         const scanned = [];
         const seen = new Set();
         for (const frameId of [0]) {
           try {
-            const result = await chrome.tabs.sendMessage(tab.id, { type: 'SCAN_EMPTY' }, { frameId });
+            const result = await chrome.tabs.sendMessage(tab.id, { type: 'SCAN_PAGE' }, { frameId });
             if (result?.ok && Array.isArray(result.data)) {
               for (const box of result.data) {
                 const key = box.label + '|' + box.kind;
@@ -155,7 +155,7 @@ chrome.runtime.onMessage.addListener((request, sender, respond) => {
             }
           } catch { /* 该 frame 无表单，跳过 */ }
         }
-        if (!scanned.length) throw new Error('本页没有扫描到空输入框（表单可能在跨域框架内，或已全部填写）。');
+        if (!scanned.length) throw new Error('本页没有扫描到可处理的输入框。');
         return scanned;
       }
       case 'BATCH_FILL': {

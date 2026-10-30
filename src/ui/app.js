@@ -5,7 +5,7 @@ import { createRepository, isExtension, message } from '../infra/repository.js';
 import { encryptProfile, decryptProfile } from '../infra/vault.js';
 import { exportProfileWorkbook, importProfileWorkbook } from '../infra/xlsx.js';
 import { h, icon, button, inputLabel, saveFile, modal, confirmAction } from './kit.js';
-import { matchBoxes } from './scan-match.js';
+import { matchBoxes, sameValue } from './scan-match.js';
 
 const panel = document.body.dataset.view === 'panel';
 // ?debug=fill ：非扩展环境预览填写模式（本地页面/联调用；扩展内无副作用）
@@ -311,46 +311,69 @@ async function sensitiveConsent(field) {
   return true;
 }
 
-// 一键补齐本页空框：扫描空输入框 → 匹配资料字段 → 预览确认 → 批量写入（可整体撤回）
+// 一键处理本页表单：扫描输入框 → 匹配资料字段 → 预览核对（补齐 + 纠错）→ 批量写入（可整体撤回）
 async function fillEmpties() {
-  toast('正在扫描本页空输入框…');
+  toast('正在扫描本页输入框…');
   let boxes;
   try {
-    boxes = await message('SCAN_EMPTY');
+    boxes = await message('SCAN_PAGE');
   } catch (error) {
     toast(errorMessage(error), true);
     return;
   }
   const matches = matchBoxes(boxes, profile);
-  if (!matches.length) {
-    toast(`扫描到 ${boxes.length} 个空输入框，但没有能对上资料字段的。请回到「编辑资料」补充内容，或用逐个点填的方式。`, true);
+  // 三类结果：待补齐（空框对上字段）、不一致（已填值与资料值不同）、未识别（没对上字段的空框）
+  const matchedBox = new Set(matches.map((m) => m.box));
+  const fills = matches.filter((m) => !m.box.value);
+  const conflicts = matches.filter((m) => !!m.box.value && !sameValue(m.box.value, m.field.value));
+  const unknown = boxes.filter((b) => !matchedBox.has(b) && !b.value);
+  if (!fills.length && !conflicts.length) {
+    const extra = unknown.length ? `，另有 ${unknown.length} 个空框没能识别字段，可逐个点填。` : '。';
+    toast(`本页能对上资料的字段${unknown.length ? '已全部' : '都'}一致或没有匹配项${extra}`, true);
     return;
   }
-  const picks = await modal('补齐本页空输入框', ({ body, foot, finish }) => {
-    body.append(h('p', { class: 'modal-description', text: '以下空框与资料字段对上了。取消勾选就不填这一项；填完后可整体撤回。' }));
-    const rows = matches.map((m) => {
-      const cb = h('input', { type: 'checkbox', checked: true });
-      const preview = m.field.value.replace(/\s+/g, ' ').slice(0, 42) + (m.field.value.length > 42 ? '…' : '');
+  const shorten = (s) => { const t = String(s || '').replace(/\s+/g, ' '); return t.slice(0, 30) + (t.length > 30 ? '…' : ''); };
+  const picks = await modal('核对本页表单', ({ body, foot, finish }) => {
+    if (fills.length) body.append(h('h4', { class: 'fill-section-title', text: `待补齐（${fills.length} 项，勾选后填入）` }));
+    const rows = [];
+    for (const m of fills) {
+      const cb = h('input', { type: 'checkbox', checked: m.field.sensitive ? undefined : true });
       const row = h('label', { class: 'check-row fill-empty-row' },
         cb,
         h('span', { class: 'fill-empty-main' },
           h('b', { text: m.field.label }),
           h('span', { class: 'fill-empty-target', text: '→ ' + m.box.label.slice(0, 36) })),
-        h('span', { class: 'fill-empty-value', text: (m.field.sensitive ? '🔒 ' : '') + preview }));
+        h('span', { class: 'fill-empty-value', text: (m.field.sensitive ? '🔒 ' : '') + shorten(m.field.value) }));
       body.append(row);
-      return { cb, m, row };
-    });
-    const sensitive = rows.filter((x) => x.m.field.sensitive).length;
-    if (sensitive) {
-      body.append(h('p', { class: 'modal-description', text: `🔒 标记的是敏感字段（${sensitive} 项，默认不勾选），确认本网站正规后再手动勾选。` }));
-      for (const x of rows) if (x.m.field.sensitive) x.cb.checked = false;
+      rows.push({ cb, m });
+    }
+    if (conflicts.length) {
+      body.append(h('h4', { class: 'fill-section-title', text: `网站已填内容与资料不一致（${conflicts.length} 项，默认保留网站内容；勾选改为资料值）` }));
+      for (const m of conflicts) {
+        const cb = h('input', { type: 'checkbox' });
+        const row = h('label', { class: 'check-row fill-empty-row fill-conflict-row' },
+          cb,
+          h('span', { class: 'fill-empty-main' },
+            h('b', { text: m.field.label + '（' + m.box.label.slice(0, 20) + '）' }),
+            h('span', { class: 'fill-diff-old', text: '网站：' + shorten(m.box.value) }),
+            h('span', { class: 'fill-diff-new', text: (m.field.sensitive ? '🔒 ' : '') + '资料：' + shorten(m.field.value) })));
+        body.append(row);
+        rows.push({ cb, m, isConflict: true });
+      }
+    }
+    if (unknown.length) {
+      body.append(h('h4', { class: 'fill-section-title', text: `未识别的空框（${unknown.length} 个仅提示，不自动填）` }));
+      body.append(h('p', { class: 'fill-unknown-list', text: unknown.map((b) => b.label.split('｜')[0].slice(0, 18)).join('、').slice(0, 200) }));
+    }
+    if (rows.some((x) => x.m.field.sensitive)) {
+      body.append(h('p', { class: 'modal-description', text: '🔒 标记的是敏感字段，默认不勾选；确认本网站正规后再手动勾选。' }));
     }
     foot.append(h('span', { class: 'spacer' }),
       button('取消', () => finish(null), { kind: 'quiet' }),
       button('填入选中项', () => finish(rows.filter((x) => x.cb.checked).map((x) => x.m)), { kind: 'primary' }));
   });
   if (!picks || !picks.length) return;
-  toast(`正在填入 ${picks.length} 项…`);
+  toast(`正在写入 ${picks.length} 项…`);
   try {
     const result = await message('BATCH_FILL', {
       items: picks.map((m) => ({ frameId: m.box.frameId, index: m.box.index, value: m.field.value })),
@@ -359,9 +382,9 @@ async function fillEmpties() {
     if (okCount) { undoAvailable = true; renderBanner(); }
     const fails = result.results.filter((r) => !r.ok);
     if (failCount) {
-      toast(`填入完成：成功 ${okCount} 项，${failCount} 项失败（${fails[0]?.error || '详见网页'}）。`, true);
+      toast(`写入完成：成功 ${okCount} 项，${failCount} 项失败（${fails[0]?.error || '详见网页'}）。`, true);
     } else {
-      toast(`已补齐 ${okCount} 项，请在网页核对；点「撤销填写」可整体撤回。`);
+      toast(`已更新 ${okCount} 项，请在网页核对；点「撤销填写」可整体撤回。`);
     }
   } catch (error) {
     toast(errorMessage(error), true);
@@ -725,7 +748,7 @@ function buildShell() {
           button('AI 识别简历', aiImportDialog, { kind: 'accent', symbol: 'scan', title: '粘贴简历原文，AI 自动提取到对应分类字段（不编造，先预览再导入）' }),
           button('AI 按 JD 定制', aiDialog, { kind: 'accent', symbol: 'spark', title: '粘贴职位描述（JD），AI 只基于现有内容改写相关字段' }),
           button('更多', () => moreMenu([
-            ['一键补齐本页空框', fillEmpties, 'scan'],
+            ['一键核对本页表单', fillEmpties, 'scan'],
             ['字体大小', fontDialog, 'type'],
             ['主题 · ' + themeName(), themeDialog, 'settings'],
             ['导出资料 / 空白模板', exportDialog, 'download'],
@@ -757,6 +780,7 @@ function buildShell() {
 /** 低频管理动作收进「更多」菜单；actions: [label, handler, symbol, kind?]，
  *  填写模式默认含「清除全部资料」；manager 底栏已常驻同一入口，传入的列表不再重复。 */
 async function moreMenu(actions = [
+  ['一键核对本页表单', fillEmpties, 'scan'],
   ['AI 一键识别简历', aiImportDialog, 'scan'],
   ['AI 按 JD 定制', aiDialog, 'spark'],
   ['字体大小', fontDialog, 'type'],

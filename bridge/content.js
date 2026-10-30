@@ -121,8 +121,8 @@
     return { label: result.label, characters: result.characters };
   }
 
-  // ===== 批量补齐：扫描本页空输入框 → 按索引批量写入 → 批量撤回 =====
-  let scanList = [];       // 扫描到的空框（本次文档生命周期内有效）
+  // ===== 一键处理本页表单：扫描全部输入框 → 按索引批量写入 → 批量撤回 =====
+  let scanList = [];       // 扫描到的输入框（本次文档生命周期内有效）
   let batchUndo = null;    // [{ el, before, nodes, after }]
 
   const deepInputs = (root, out) => {
@@ -149,23 +149,30 @@
     return '';
   };
 
-  function scanEmpty() {
+  function scanPage() {
     const all = [];
     deepInputs(document, all);
     scanList = all.filter((el) => {
-      if (el instanceof HTMLInputElement && el.type === 'file') return false;
-      if (el instanceof HTMLSelectElement) {
-        if (el.value) return false;
-        return el.options.length > 1;   // 只有一个 option 的 select 通常是占位
-      }
-      return !nativeValue(el).trim();
+      if (el instanceof HTMLInputElement && ['file', 'password', 'checkbox', 'radio'].includes(el.type)) return false;
+      if (el instanceof HTMLSelectElement) return el.options.length > 1;   // 只有一个 option 的 select 通常是占位
+      return true;
     });
-    return scanList.slice(0, 60).map((el, index) => ({
-      index,
-      label: nearbyText(el) ? nearbyText(el) + '｜' + labelOf(el) : labelOf(el),
-      kind: el.tagName.toLowerCase(),
-      inputType: el.type || 'text',
-    }));
+    return scanList.slice(0, 60).map((el, index) => {
+      let value = '';
+      if (el instanceof HTMLSelectElement) {
+        const opt = el.options[el.selectedIndex < 0 ? 0 : el.selectedIndex];
+        value = (el.value && opt) ? (opt.textContent || opt.value).trim() : '';   // 未选或选了空 value 视为未填
+      } else {
+        value = nativeValue(el).trim();
+      }
+      return {
+        index,
+        value,
+        label: nearbyText(el) ? nearbyText(el) + '｜' + labelOf(el) : labelOf(el),
+        kind: el.tagName.toLowerCase(),
+        inputType: el.type || 'text',
+      };
+    });
   }
 
   async function batchFill(items) {
@@ -222,8 +229,8 @@
       try { respond({ ok: true, data: undoWrite() }); } catch (e) { respond({ ok: false, error: e.message || '撤回失败。' }); }
       return false;
     }
-    if (msg.type === 'SCAN_EMPTY') {
-      try { respond({ ok: true, data: scanEmpty() }); } catch (e) { respond({ ok: false, error: e.message || '扫描失败。' }); }
+    if (msg.type === 'SCAN_PAGE') {
+      try { respond({ ok: true, data: scanPage() }); } catch (e) { respond({ ok: false, error: e.message || '扫描失败。' }); }
       return false;
     }
     if (msg.type === 'BATCH_FILL') {
