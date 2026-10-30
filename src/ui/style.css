@@ -103,6 +103,8 @@ body{font:13px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;back
 .btn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:var(--radius);padding:6px 12px;font:inherit;cursor:pointer;white-space:nowrap;flex-shrink:0}
 .btn:hover{border-color:var(--accent)}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.accent{background:var(--accent-soft);border-color:transparent;color:var(--accent);font-weight:600}
+.btn.accent:hover{border-color:var(--accent)}
 .btn.quiet{border-color:transparent}
 .btn.danger{color:var(--danger);border-color:var(--danger)}
 .btn.small{padding:3px 9px;font-size:12px}

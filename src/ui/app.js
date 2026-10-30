@@ -619,7 +619,7 @@ function buildShell() {
         h('div', { class: 'search-box', role: 'search' }, icon('search', 14), searchInput),
         h('div', { class: 'topbar-actions' },
           (themeBtn = button('主题', themeDialog, { kind: 'quiet icon-only', symbol: 'settings', title: `主题 · ${themeName()}` })),
-          button('更多', moreMenu, { kind: 'quiet icon-only', symbol: 'menu', title: '导出 / 导入 / 历史 / AI 定制' })))
+          button('更多', () => moreMenu(), { kind: 'quiet icon-only', symbol: 'menu', title: '导出 / 导入 / 历史 / AI 定制' })))
     : h('header', { class: 'topbar' },
         h('div', { class: 'brand' },
           h('span', { class: 'brand-glyph', text: '袋' }),
@@ -627,13 +627,15 @@ function buildShell() {
           h('span', { class: 'brand-en', text: 'PocketCV' })),
         h('div', { class: 'search-box', role: 'search' }, icon('search', 14), searchInput),
         h('div', { class: 'topbar-actions' },
-          (themeBtn = button(`主题 · ${themeName()}`, themeDialog, { kind: 'quiet', symbol: 'settings' })),
           button('保存', () => { flush().then((ok) => { toast(ok ? '已保存到本机。' : '保存失败，请重试。', !ok); }); }, { kind: 'primary', symbol: 'check', title: '立即保存（Ctrl S）' }),
-          button('导出', exportDialog, { kind: 'quiet', symbol: 'download' }),
-          button('导入', importDialog, { kind: 'quiet', symbol: 'upload' }),
-          button('AI 导入', aiImportDialog, { kind: 'quiet', symbol: 'scan' }),
-          button('AI 定制', aiDialog, { kind: 'quiet', symbol: 'spark' }),
-          button('历史', historyDialog, { kind: 'quiet', symbol: 'history' })));
+          button('AI 识别简历', aiImportDialog, { kind: 'accent', symbol: 'scan', title: '粘贴简历原文，AI 自动提取到对应分类字段（不编造，先预览再导入）' }),
+          button('AI 按 JD 定制', aiDialog, { kind: 'accent', symbol: 'spark', title: '粘贴职位描述（JD），AI 只基于现有内容改写相关字段' }),
+          button('更多', () => moreMenu([
+            ['主题 · ' + themeName(), themeDialog, 'settings'],
+            ['导出资料 / 空白模板', exportDialog, 'download'],
+            ['导入资料文件', importDialog, 'upload'],
+            ['本地历史版本', historyDialog, 'history'],
+          ]), { kind: 'quiet', symbol: 'menu', title: '主题 / 导出 / 导入 / 历史' })));
 
   navNode = h('nav', { class: 'module-nav', 'aria-label': '资料分类' });
   const navBottom = h('div', { class: 'nav-bottom' },
@@ -655,17 +657,17 @@ function buildShell() {
   root.replaceChildren(topbar, ...(fillMode && bannerNode ? [bannerNode] : []), shell, bottom);
 }
 
-/** 填写模式的「更多」菜单：低频管理动作集中于此 */
-async function moreMenu() {
+/** 低频管理动作收进「更多」菜单；actions: [label, handler, symbol][] */
+async function moreMenu(actions = [
+  ['AI 一键识别简历', aiImportDialog, 'scan'],
+  ['AI 按 JD 定制', aiDialog, 'spark'],
+  ['导出资料 / 空白模板', exportDialog, 'download'],
+  ['导入资料文件', importDialog, 'upload'],
+  ['本地历史版本', historyDialog, 'history'],
+]) {
   const action = await modal('更多操作', ({ body, foot, finish }) => {
-    body.append(h('p', { class: 'modal-description', text: '填写时用不到的管理动作都收在这里。' }));
-    for (const [label, handler, symbol] of [
-      ['AI 一键识别简历', aiImportDialog, 'scan'],
-      ['AI 按 JD 定制', aiDialog, 'spark'],
-      ['导出资料 / 空白模板', exportDialog, 'download'],
-      ['导入资料', importDialog, 'upload'],
-      ['本地历史', historyDialog, 'history'],
-    ]) body.append(button(label, () => finish(handler), { kind: 'quiet', symbol }));
+    body.append(h('p', { class: 'modal-description', text: '不常用的管理动作都收在这里。' }));
+    for (const [label, handler, symbol] of actions) body.append(button(label, () => finish(handler), { kind: 'quiet', symbol }));
     body.append(h('div', { class: 'menu-gap' }), button('清除全部资料', () => finish('erase'), { kind: 'quiet danger', symbol: 'trash' }));
     foot.append(h('span', { class: 'spacer' }), button('关闭', () => finish(null), { kind: 'quiet' }));
   });
