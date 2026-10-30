@@ -32,6 +32,7 @@ const ICON_PATHS = {
   eye: 'M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Zm10 2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z',
   undo: 'M4 9h9a5 5 0 0 1 0 10h-3M4 9l4-4M4 9l4 4',
   target: 'M12 19a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm0-4.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM12 2v3M12 19v3M2 12h3M19 12h3',
+  scan: 'M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M3 12h18',
 };
 export function icon(name, size = 15) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');

@@ -23,19 +23,19 @@ const t = (name, pass, detail = '') => results.push(`${pass ? 'PASS' : 'FAIL'} $
 
 // ---- 1. 模板结构 ----
 const tpl = templateProfile();
-t('模板分类齐全', JSON.stringify(tpl.modules.map((m) => m.name)) === JSON.stringify(['基本信息', '教育经历', '实习经历', '项目经历', '专业技能', '获奖荣誉', '自我优势']));
+t('模板分类齐全', JSON.stringify(tpl.modules.map((m) => m.name)) === JSON.stringify(['求职意向', '基本信息', '教育经历', '实习经历', '项目经历', '校园经历', '专业技能', '获奖荣誉', '自我评价', '其他资料']));
 t('模板内容全空', stats(tpl).filled === 0);
-const phone = tpl.modules[0].entries[0].fields.find((f) => f.label === '手机');
+const phone = tpl.modules[1].entries[0].fields.find((f) => f.label === '手机');
 t('手机字段标记敏感', phone && phone.sensitive === true);
-t('多行字段类型正确', tpl.modules[2].entries[0].fields.some((f) => f.label === '主要职责' && f.type === 'multiline'));
+t('多行字段类型正确', tpl.modules[3].entries[0].fields.some((f) => f.label === '工作描述' && f.type === 'multiline'));
 
 // ---- 2. roundtrip：导出模板 → 导回 ----
 const bytes = exportProfileWorkbook(tpl, { accent: '7d93a8', themeId: 'gray' });
 const back = await importProfileWorkbook(bytes);
-t('roundtrip 分类数', back.profile.modules.length === 7, `${back.profile.modules.length}`);
+t('roundtrip 分类数', back.profile.modules.length === 10, `${back.profile.modules.length}`);
 t('roundtrip 层级保留', back.profile.modules.every((m) => ['常用', '扩展', '备用'].includes(m.tier)));
 t('roundtrip 内容仍空', stats(back.profile).filled === 0);
-t('roundtrip 敏感标记保留', (() => { const f = back.profile.modules[0].entries[0].fields.find((x) => x.label === '手机'); return f && f.sensitive; })());
+t('roundtrip 敏感标记保留', (() => { const f = back.profile.modules[1].entries[0].fields.find((x) => x.label === '手机'); return f && f.sensitive; })());
 t('来源标记为 pocketcv', back.source === 'pocketcv');
 
 // ---- 3. 帮助页含 AI 用法说明 ----

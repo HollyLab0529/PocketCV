@@ -145,11 +145,11 @@ dialog.modal::backdrop{background:#1c202452}
 
 /* 填写模式：连接横幅与待填清单 */
 .banner{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:10px 12px 0;padding:9px 12px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);font-size:12px;color:var(--muted)}
-.banner-text{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.banner-text{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;flex:1 1 0;min-width:0}
 .banner-label{font-weight:600;color:var(--ink);white-space:nowrap}
 .banner-target{max-width:min(340px,48vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
 .banner-origin{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.banner-hint{min-width:0}
+.banner-hint{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* 填写模式字段行：高密度单行，点行即填 */
 .fill-list{display:flex;flex-direction:column;gap:2px}
 .fill-field{display:flex;align-items:center;gap:8px;border:1px solid transparent;border-radius:var(--radius);padding:7px 8px;background:var(--surface);min-width:0}
@@ -175,18 +175,24 @@ dialog.modal::backdrop{background:#1c202452}
 /* 侧边栏（面板视图）：保持左侧竖排窄导航，对齐同类插件的高密度布局
    注意：面板宽度通常 < 600px，会命中下方窄窗口媒体查询，这里必须逐一显式覆盖 */
 body[data-view='panel'] .shell{flex-direction:row}
-body[data-view='panel'] .sidebar{width:84px;flex-direction:column;border-bottom:0;overflow-y:auto}
-body[data-view='panel'] .module-nav{flex-direction:column;align-items:stretch;padding:8px 6px;gap:2px}
+body[data-view='panel'] .sidebar{width:84px;flex-direction:column;border-bottom:0;overflow-y:auto;overflow-x:hidden}
+body[data-view='panel'] .module-nav{flex-direction:column;align-items:stretch;padding:8px 6px;gap:2px;min-width:0;overflow-x:hidden}
 body[data-view='panel'] .tier-label{display:block;padding:8px 4px 2px;font-size:10px}
-body[data-view='panel'] .nav-item{width:100%;padding:5px 6px;gap:5px;font-size:12.5px}
-body[data-view='panel'] .nav-glyph{display:grid}
+body[data-view='panel'] .nav-item{width:100%;max-width:100%;padding:5px 6px;gap:5px;font-size:12.5px}
+body[data-view='panel'] .nav-glyph{display:none}
+body[data-view='panel'] .nav-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body[data-view='panel'] .nav-count{display:none}
-body[data-view='panel'] .nav-bottom{border-top:1px solid var(--line);padding:6px}
-body[data-view='panel'] .nav-bottom .btn{width:100%;justify-content:center;font-size:12px}
+body[data-view='panel'] .sidebar .nav-bottom{width:100%;box-sizing:border-box;border-top:1px solid var(--line);padding:6px}
+body[data-view='panel'] .nav-bottom .btn{width:100%;justify-content:center;font-size:12px;padding-left:6px;padding-right:6px}
+body[data-view='panel'] .nav-bottom .btn .icon{display:none}
 body[data-view='panel'] .search-box{max-width:none;flex:1 1 120px;min-width:100px;order:0}
 body[data-view='panel'] .workspace{padding:10px 12px}
 body[data-view='panel'] .topbar{padding:8px 10px;gap:8px}
 body[data-view='panel'] .fill-value{text-align:right}
+body[data-view='panel'] .banner{gap:6px}
+body[data-view='panel'] .banner-origin{display:none}
+body[data-view='panel'] .banner .btn{padding:5px 8px;font-size:12px}
+body[data-view='panel'] .banner .btn .icon{display:none}
 
 /* 窄窗口：与面板视图相同的横向导航 */
 @media (max-width:600px){
@@ -218,3 +224,9 @@ body[data-view='panel'] .fill-value{text-align:right}
 .empty-state .modal-description{margin:0 0 12px}
 .empty-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
 .menu-gap{height:8px;margin:8px 0 2px;border-top:1px solid var(--line)}
+
+/* ===== AI 一键识别（第 8 期） ===== */
+.ai-import-list{max-height:38vh;overflow:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg);padding:10px 12px;margin-top:10px}
+.ai-import-module{font-weight:600;font-size:12.5px;margin:10px 0 4px;color:var(--ink)}
+.ai-import-module:first-child{margin-top:0}
+.ai-import-field{font-size:12.5px;color:var(--muted);margin:3px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

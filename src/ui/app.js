@@ -235,7 +235,7 @@ function renderBanner() {
       icon('target', 15),
       h('span', { class: 'banner-text' },
         h('span', { class: 'banner-label', text: '未连接网页' }),
-        h('span', { class: 'banner-hint', text: '先在招聘网页点一下要填的输入框，再回来点「填入」。' })),
+        h('span', { class: 'banner-hint', text: '先在招聘网页点一下要填的输入框，再回来点「填入」。', title: '先在招聘网页点一下要填的输入框，再回来点「填入」。' })),
       h('span', { class: 'spacer' }),
       button('连接当前网页', connectPage, { kind: 'primary', symbol: 'target' }));
   }
@@ -329,20 +329,24 @@ function renderFillField(e, f) {
   return row;
 }
 
+/** 首次使用 AI 时引导配置；返回配置或 null */
+async function ensureAiConfig(purpose) {
+  let config = loadAiConfig();
+  if (config) return config;
+  const go = await modal(purpose, ({ body, foot, finish }) => {
+    body.append(h('p', { class: 'modal-description', text: `${purpose}需要先配置一个 OpenAI 兼容接口（DeepSeek、通义、智谱、Kimi 等均可）。API Key 只保存在本机。` }));
+    foot.append(h('span', { class: 'spacer' }),
+      button('取消', () => finish(null), { kind: 'quiet' }),
+      button('打开 AI 设置', () => finish(true), { kind: 'primary' }));
+  });
+  if (!go) return null;
+  return aiSettingsDialog();
+}
+
 /** 单字段 AI 改写：JD 记住上次输入；预览后采纳或复制 */
 async function aiFieldDialog(field) {
-  let config = loadAiConfig();
-  if (!config) {
-    const go = await modal('AI 改写', ({ body, foot, finish }) => {
-      body.append(h('p', { class: 'modal-description', text: `用 AI 按 JD 改写「${field.label}」。首次使用需要先配置一个 OpenAI 兼容接口（API Key 只存本机）。` }));
-      foot.append(h('span', { class: 'spacer' }),
-        button('取消', () => finish(null), { kind: 'quiet' }),
-        button('打开 AI 设置', () => finish(true), { kind: 'primary' }));
-    });
-    if (!go) return;
-    config = await aiSettingsDialog();
-    if (!config) return;
-  }
+  const config = await ensureAiConfig(`用 AI 按 JD 改写「${field.label}」`);
+  if (!config) return;
   const JD_KEY = 'pocketcv.ai.jd.v1';
   let lastJd = '';
   try { lastJd = localStorage.getItem(JD_KEY) || ''; } catch { /* 忽略 */ }
@@ -424,6 +428,157 @@ async function aiFieldDialog(field) {
   }
 }
 
+/** AI 一键识别：粘贴简历原文，AI 抽取为分类字段，预览后「覆盖」或「合并」导入 */
+async function aiImportDialog() {
+  const config = await ensureAiConfig('AI 一键识别简历');
+  if (!config) return;
+  const RESUME_MAX = 16000;
+  const ta = h('textarea', { class: 'ai-jd', rows: 12, placeholder: '把整份简历原文粘贴到这里（PDF / Word 里全选复制文字即可）…', 'aria-label': '简历原文' });
+  const status = h('p', { class: 'ai-status', 'data-error': 'true', hidden: true });
+  const apply = await modal('AI 一键识别简历', ({ body, foot, finish }) => {
+    const buildInput = () => {
+      body.replaceChildren(
+        h('p', { class: 'modal-description', text: '粘贴简历原文，AI 只提取原文中明确出现的信息（不编造），抽取为分类字段后先预览再导入。' }),
+        inputLabel('简历原文', ta), status);
+      foot.replaceChildren(h('span', { class: 'spacer' }),
+        button('取消', () => finish(null), { kind: 'quiet' }),
+        button('开始识别', generate, { kind: 'primary' }));
+    };
+    const generate = async () => {
+      const text = ta.value.trim();
+      if (text.length < 30) { status.hidden = false; status.textContent = '内容太短，请粘贴完整的简历原文（至少 30 字）。'; return; }
+      if (text.length > RESUME_MAX) { status.hidden = false; status.textContent = `简历超过 ${RESUME_MAX} 字，请删减后重试。`; return; }
+      body.replaceChildren(h('p', { class: 'modal-description', text: '正在识别简历内容，最长约 2 分钟…' }));
+      foot.replaceChildren(h('span', { class: 'spacer' }), button('取消', () => finish(null), { kind: 'quiet' }));
+      const system = [
+        '你是简历信息抽取助手。从用户粘贴的简历原文中抽取结构化求职资料：',
+        '1. 只提取原文中明确出现的事实，严禁编造、推测或改写；原文没有的信息省略该字段。',
+        '2. 按内容组织分类 name（常用：求职意向/基本信息/教育经历/实习经历/项目经历/校园经历/专业技能/获奖荣誉/自我评价/其他资料），每条记录有 title（如公司·岗位、学校）。',
+        '3. 字段 type 只能取：text/multiline/date/month/email/tel/url/number；身份证号、手机号等设 sensitive 为 true。',
+        '4. value 保持原文表述，多行内容用 \\n 分隔，每条不超过 500 字。',
+        '5. 输出严格 JSON，不要解释、不要代码块：',
+        '{"modules":[{"name":"分类名","tier":"常用","entries":[{"title":"记录名","fields":[{"label":"字段名","value":"内容","type":"text","sensitive":false}]}]}]}',
+      ].join('\n');
+      let reply;
+      try {
+        reply = await message('AI_CHAT', { baseUrl: config.baseUrl, apiKey: config.apiKey, model: config.model,
+          messages: [{ role: 'system', content: system }, { role: 'user', content: `简历原文：\n${text}\n\n只输出 JSON。` }] });
+      } catch (error) {
+        buildInput();
+        status.hidden = false; status.textContent = errorMessage(error);
+        return;
+      }
+      const parsed = parseAiImport(String(reply?.content || ''));
+      if (!parsed.modules.length) {
+        buildInput();
+        status.hidden = false; status.textContent = 'AI 没有识别出可用字段，请重试或换模型。';
+        return;
+      }
+      showPreview(parsed);
+    };
+    const showPreview = (parsed) => {
+      const total = parsed.modules.reduce((n, m2) => n + m2.entries.reduce((k, e2) => k + e2.fields.length, 0), 0);
+      const list = h('div', { class: 'ai-import-list' });
+      for (const m2 of parsed.modules) {
+        list.append(h('p', { class: 'ai-import-module', text: `${m2.name}（${m2.tier}）` }));
+        for (const e2 of m2.entries) for (const f of e2.fields) {
+          const v = f.value.replace(/\s+/g, ' ').slice(0, 60);
+          list.append(h('p', { class: 'ai-import-field', text: `${f.label}：${v}${f.value.length > 60 ? '…' : ''}` }));
+        }
+      }
+      body.replaceChildren(
+        h('p', { class: 'modal-description', text: `识别出 ${parsed.modules.length} 个分类、${total} 个字段。选择导入方式：` }),
+        list);
+      foot.replaceChildren(h('span', { class: 'spacer' }),
+        button('重试', () => { buildInput(); }, { kind: 'quiet' }),
+        button('合并导入（只填空字段）', () => finish({ mode: 'merge', parsed }), { kind: 'quiet' }),
+        button('覆盖导入', () => finish({ mode: 'replace', parsed }), { kind: 'primary' }));
+    };
+    buildInput();
+  });
+  if (!apply) return;
+  if (!await flush()) { toast('有修改尚未保存成功，已取消导入。', true); return; }
+  const { mode, parsed } = apply;
+  const mutated = mode === 'merge' ? mergeImport(clone(profile), parsed) : replaceImport(parsed, profile.name);
+  try {
+    const next = await repo.replaceAll(validateProfile(mutated), 'AI 导入前');
+    profile = next.profile;
+    revision = profile.revision;
+    epoch = next.epoch;
+    historyInfo = null;
+    dirty = false;
+    selected = profile.modules[0] ? profile.modules[0].id : selected;
+    query = '';
+    if (searchInput) searchInput.value = '';
+    render();
+    toast(mode === 'merge' ? '已合并导入（导入前版本已存入历史）。' : '已覆盖导入（导入前版本已存入历史）。');
+  } catch (error) {
+    toast(errorMessage(error), true);
+  }
+}
+
+/** 解析 AI 一键识别返回：剥围栏 → 截取 JSON → 宽松校验为 {modules:[...]} */
+function parseAiImport(content) {
+  const text = content.replace(/```(?:json)?/gi, '').trim();
+  const s = text.indexOf('{'); const e = text.lastIndexOf('}');
+  const out = { modules: [] };
+  if (s < 0 || e <= s) return out;
+  let data;
+  try { data = JSON.parse(text.slice(s, e + 1)); } catch { return out; }
+  const raw = Array.isArray(data?.modules) ? data.modules : [];
+  for (const m of raw.slice(0, LIMITS.modules)) {
+    if (!m || typeof m.name !== 'string' || !m.name.trim()) continue;
+    const mod = makeModule(m.name.trim().slice(0, LIMITS.label), TIERS.includes(m.tier) ? m.tier : '常用');
+    const entries = Array.isArray(m.entries) ? m.entries.slice(0, 20) : [];
+    for (const en of entries) {
+      if (!en || typeof en.title !== 'string' || !en.title.trim()) continue;
+      const entry = makeEntry(en.title.trim().slice(0, LIMITS.label));
+      const fields = Array.isArray(en.fields) ? en.fields.slice(0, 40) : [];
+      for (const f of fields) {
+        if (!f || typeof f.label !== 'string' || !f.label.trim()) continue;
+        if (typeof f.value !== 'string' || !f.value.trim()) continue;   // 空值字段没有导入意义
+        const field = makeField(f.label.trim().slice(0, LIMITS.label), typeof f.group === 'string' ? f.group.slice(0, LIMITS.label) : '',
+          TYPES.includes(f.type) ? f.type : 'text', f.sensitive === true);
+        field.value = f.value.slice(0, LIMITS.value);
+        entry.fields.push(field);
+      }
+      if (entry.fields.length) mod.entries.push(entry);
+    }
+    if (mod.entries.length) out.modules.push(mod);
+  }
+  return out;
+}
+
+/** 合并导入：同名分类内，同名字段只填空值；没有的追加；新分类整体追加 */
+function mergeImport(base, parsed) {
+  for (const m of parsed.modules) {
+    const existing = base.modules.find((x) => x.name === m.name);
+    if (!existing) { base.modules.push(m); continue; }
+    const known = new Set();
+    for (const e of existing.entries) for (const f of e.fields) known.add(f.label);
+    for (const e of m.entries) {
+      const target = existing.entries.find((x) => x.title === e.title) || existing.entries[0];
+      if (!target) { existing.entries.push(e); continue; }
+      for (const f of e.fields) {
+        const hit = target.fields.find((x) => x.label === f.label);
+        if (hit) { if (!hit.value.trim()) hit.value = f.value; continue; }
+        if (known.has(f.label)) continue;
+        known.add(f.label);
+        target.fields.push(f);
+      }
+    }
+  }
+  return base;
+}
+
+/** 覆盖导入：用识别结果重建整个资料（保留资料名） */
+function replaceImport(parsed, name) {
+  const p = emptyProfile();
+  p.name = name || '我的口袋简历';
+  p.modules = parsed.modules;
+  return p;
+}
+
 // ===== 布局 =====
 let navNode = null;
 let headNode = null;
@@ -460,6 +615,7 @@ function buildShell() {
           (themeBtn = button(`主题 · ${themeName()}`, themeDialog, { kind: 'quiet', symbol: 'settings' })),
           button('导出', exportDialog, { kind: 'quiet', symbol: 'download' }),
           button('导入', importDialog, { kind: 'quiet', symbol: 'upload' }),
+          button('AI 导入', aiImportDialog, { kind: 'quiet', symbol: 'scan' }),
           button('AI 定制', aiDialog, { kind: 'quiet', symbol: 'spark' }),
           button('历史', historyDialog, { kind: 'quiet', symbol: 'history' })));
 
@@ -488,6 +644,7 @@ async function moreMenu() {
   const action = await modal('更多操作', ({ body, foot, finish }) => {
     body.append(h('p', { class: 'modal-description', text: '填写时用不到的管理动作都收在这里。' }));
     for (const [label, handler, symbol] of [
+      ['AI 一键识别简历', aiImportDialog, 'scan'],
       ['AI 按 JD 定制', aiDialog, 'spark'],
       ['导出资料 / 空白模板', exportDialog, 'download'],
       ['导入资料', importDialog, 'upload'],
@@ -603,7 +760,8 @@ function renderModule() {
     listNode.append(h('div', { class: 'empty-state' },
       h('p', { class: 'modal-description', text: '资料还是空的，先填充内容才能往网页填入。' }),
       h('div', { class: 'empty-actions' },
-        button('打开编辑资料', () => window.open(chrome?.runtime?.getURL ? chrome.runtime.getURL('manager.html') : 'manager.html', '_blank'), { kind: 'primary', symbol: 'edit' }),
+        button('AI 一键识别简历', aiImportDialog, { kind: 'primary', symbol: 'scan' }),
+        button('打开编辑资料', () => window.open(chrome?.runtime?.getURL ? chrome.runtime.getURL('manager.html') : 'manager.html', '_blank'), { kind: 'quiet', symbol: 'edit' }),
         button('导出空白模板给 AI 填', exportDialog, { kind: 'quiet', symbol: 'download' }))));
     return;
   }
@@ -1247,6 +1405,17 @@ async function main() {
     revision = profile.revision;
     epoch = result.epoch;
     sanitizeDirtyText(profile);   // 清洗历史导入可能带进的 "nullnull" 之类脏文本
+    // 旧版默认模板（3 分类）且仍全空：自动升级为完整分类模板
+    const OLD_STARTER = ['基本信息', '教育经历', '实习经历'];
+    if (stats(profile).filled === 0 && profile.modules.length <= OLD_STARTER.length
+      && profile.modules.every((m) => OLD_STARTER.includes(m.name))) {
+      try {
+        const upgraded = await repo.replaceAll(starterProfile(), '升级默认分类');
+        profile = upgraded.profile;
+        revision = profile.revision;
+        epoch = upgraded.epoch;
+      } catch { /* 升级失败则保留原样 */ }
+    }
   }
   render();
   repo.subscribe((state) => {
