@@ -41,7 +41,7 @@ let undoAvailable = false;     // 当前网页是否有可撤回的填写
 let bannerNode = null;
 const sessionTrusted = new Set(); // 本次会话内已确认过的网站 origin
 
-const FEEDBACK_URL = 'https://github.com/xiaohanxu0529/PocketCV/issues';
+const FEEDBACK_URL = 'https://github.com/HollyLab0529/PocketCV/issues';
 const openFeedback = () => window.open(FEEDBACK_URL, '_blank');
 
 const toast = (text, error = false) => {
