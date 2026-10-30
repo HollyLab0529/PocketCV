@@ -73,6 +73,7 @@ body{font:13px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;back
 .record-bottom{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
 .group-label{font-size:11px;color:var(--muted);margin:10px 0 6px;padding-left:2px;letter-spacing:.04em}
 .field-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(240px,100%),1fr));gap:8px 14px;margin-top:4px}
+.field-grid .field-wide{grid-column:1 / -1}
 .record[data-open=false] .field-grid,.record[data-open=false] .group-label,.record[data-open=false] .record-bottom{display:none}
 
 /* 字段 */
