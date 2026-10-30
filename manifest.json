@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "口袋简历 PocketCV",
-  "version": "0.4.0",
-  "version_name": "0.4.0",
+  "version": "0.5.0",
+  "version_name": "0.5.0",
   "minimum_chrome_version": "116",
   "description": "把求职资料装进口袋：侧栏管理个人信息与经历，在招聘网页逐项填写。本地存储、可加密备份、Excel 模板可交给任意 AI 填写，插件内还可按 JD 定制。",
   "permissions": [

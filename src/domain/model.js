@@ -39,89 +39,97 @@ export function emptyProfile() {
 export function starterProfile() {
   const p = emptyProfile();
   p.name = '我的口袋简历';
+  // 求职意向
+  const intent = makeModule('求职意向');
+  intent.entries.push(makeEntry('求职意向', [
+    makeField('期望岗位', '', 'text'),
+    makeField('期望城市', '', 'text'),
+    makeField('期望薪资', '', 'text'),
+    makeField('求职类型', '', 'text'),
+    makeField('到岗时间', '', 'text'),
+  ]));
+  // 基本信息
   const basic = makeModule('基本信息');
   basic.entries.push(makeEntry('基本资料', [
     makeField('姓名', '', 'text'),
     makeField('手机', '', 'tel', true),
     makeField('邮箱', '', 'email'),
+    makeField('性别', '', 'text'),
+    makeField('出生年月', '', 'month'),
     makeField('现居住城市', '', 'text'),
-  ]));
-  const edu = makeModule('教育经历');
-  edu.entries.push(makeEntry('示例大学', [
-    makeField('学校', '', 'text'),
-    makeField('专业', '', 'text'),
-    makeField('学历/学位', '', 'text'),
-    makeField('起止时间', '', 'text'),
-  ]));
-  const intern = makeModule('实习经历');
-  intern.entries.push(makeEntry('示例公司', [
-    makeField('单位名称', '', 'text'),
-    makeField('岗位', '', 'text'),
-    makeField('开始时间', '', 'month'),
-    makeField('结束时间', '', 'month'),
-    makeField('工作描述', '', 'multiline'),
-  ]));
-  p.modules.push(basic, edu, intern);
-  return p;
-}
-
-/** 下载模板用的推荐结构：分类/记录/字段齐备但内容留空。
- * 用户可直接填写，或连同简历原文交给任意 AI 填写后导回。 */
-export function templateProfile() {
-  const p = emptyProfile();
-  p.name = '我的口袋简历';
-  const basic = makeModule('基本信息');
-  basic.entries.push(makeEntry('基本资料', [
-    makeField('姓名', '', 'text'),
-    makeField('手机', '', 'tel', true),
-    makeField('邮箱', '', 'email'),
-    makeField('现居住城市', '', 'text'),
-    makeField('求职意向', '', 'text'),
+    makeField('政治面貌', '', 'text'),
     makeField('个人主页 / 作品集', '', 'url'),
   ]));
+  // 教育经历
   const edu = makeModule('教育经历');
   edu.entries.push(makeEntry('最高学历', [
     makeField('学校', '', 'text'),
-    makeField('专业', '', 'text'),
+    makeField('学院 / 专业', '', 'text'),
     makeField('学历 / 学位', '', 'text'),
     makeField('起止时间', '', 'text'),
     makeField('绩点 / 排名', '', 'text'),
+    makeField('主修课程', '', 'multiline'),
   ]));
-  const work = makeModule('实习经历');
-  work.entries.push(makeEntry('示例公司 · 岗位', [
+  // 实习经历
+  const intern = makeModule('实习经历');
+  intern.entries.push(makeEntry('示例公司 · 岗位', [
     makeField('单位名称', '', 'text'),
     makeField('岗位', '', 'text'),
     makeField('起止时间', '', 'text'),
-    makeField('主要职责', '', 'multiline'),
+    makeField('工作描述', '', 'multiline'),
     makeField('主要成果', '', 'multiline'),
   ]));
+  // 项目经历
   const proj = makeModule('项目经历');
   proj.entries.push(makeEntry('项目名称', [
-    makeField('项目名称', '', 'text'),
     makeField('担任角色', '', 'text'),
     makeField('起止时间', '', 'text'),
     makeField('项目描述', '', 'multiline'),
     makeField('技术栈 / 方法', '', 'text'),
     makeField('成果与数据', '', 'multiline'),
   ]));
-  const skill = makeModule('专业技能');
+  // 校园经历
+  const campus = makeModule('校园经历', '扩展');
+  campus.entries.push(makeEntry('学生工作 / 社团', [
+    makeField('组织名称', '', 'text'),
+    makeField('担任角色', '', 'text'),
+    makeField('起止时间', '', 'text'),
+    makeField('职责与成果', '', 'multiline'),
+  ]));
+  // 专业技能
+  const skill = makeModule('专业技能', '扩展');
   skill.entries.push(makeEntry('技能清单', [
     makeField('专业技能', '', 'multiline'),
     makeField('语言能力', '', 'text'),
     makeField('证书', '', 'text'),
   ]));
-  const award = makeModule('获奖荣誉');
+  // 获奖荣誉
+  const award = makeModule('获奖荣誉', '扩展');
   award.entries.push(makeEntry('荣誉记录', [
     makeField('奖项名称', '', 'text'),
     makeField('获奖时间', '', 'month'),
     makeField('级别 / 说明', '', 'text'),
   ]));
-  const self = makeModule('自我优势');
+  // 自我评价
+  const self = makeModule('自我评价', '扩展');
   self.entries.push(makeEntry('自我评价', [
     makeField('优势总结', '', 'multiline'),
   ]));
-  p.modules.push(basic, edu, work, proj, skill, award, self);
+  // 其他资料（备用）
+  const other = makeModule('其他资料', '备用');
+  other.entries.push(makeEntry('补充信息', [
+    makeField('身份证号', '', 'text', true),
+    makeField('紧急联系人', '', 'text'),
+    makeField('其他补充', '', 'multiline'),
+  ]));
+  p.modules.push(intent, basic, edu, intern, proj, campus, skill, award, self, other);
   return p;
+}
+
+/** 下载模板用的推荐结构：分类/记录/字段齐备但内容留空。
+ * 用户可直接填写，或连同简历原文交给任意 AI 填写后导回。与侧栏默认分类保持一致。 */
+export function templateProfile() {
+  return starterProfile();
 }
 
 function checkId(v, path, used) {
