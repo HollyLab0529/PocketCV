@@ -829,12 +829,13 @@ function renderEntry(m, e, index) {
   const card = h('section', { class: 'record', 'data-open': String(open) });
   const toggle = h('button', {
     type: 'button', class: 'record-toggle', 'aria-expanded': String(open),
+    title: open ? '点击折叠该记录，只留标题行' : '点击展开该记录',
     on: { click: () => { if (collapsed.has(e.id)) collapsed.delete(e.id); else collapsed.add(e.id); render(); } },
   },
   h('span', { class: 'record-index', text: String(index + 1).padStart(2, '0') }),
   h('span', { class: 'record-title', text: e.title }),
   h('span', { class: 'record-summary', text: summary(e), title: summary(e) }),
-  h('span', { class: 'chevron', 'aria-hidden': 'true' }, icon('menu', 12)));
+  h('span', { class: 'chevron', 'aria-hidden': 'true' }, icon('chevdown', 13)));
   const bar = h('div', { class: 'record-top' }, toggle,
     fillMode ? null : button('记录操作', () => entryMenu(m.id, e.id), { kind: 'quiet icon-only', symbol: 'edit', title: '记录操作：' + e.title }));
   card.append(bar);
