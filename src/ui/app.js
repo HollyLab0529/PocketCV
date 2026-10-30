@@ -708,6 +708,7 @@ async function moreMenu(actions = [
   ['清除全部资料', 'erase', 'trash', 'quiet danger'],
 ]) {
   const action = await modal('更多操作', ({ body, finish }) => {
+    body.classList.add('menu-list');
     body.append(h('p', { class: 'modal-description', text: '不常用的管理动作都收在这里。' }));
     for (const [label, handler, symbol, kind] of actions) body.append(button(label, () => finish(handler), { kind: kind || 'quiet', symbol }));
   });
