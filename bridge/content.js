@@ -75,17 +75,22 @@
     el.dispatchEvent(new Event('change', { bubbles: true }));
   };
 
-  async function write(tokenValue, content) {
-    if (!current || current.token !== tokenValue) throw new Error('目标输入框已变化，请在网页重新点选。');
-    const el = current.el;
-    if (!editable(el) || rootEditable(activeEl()) !== el) throw new Error('输入框已失效或焦点已移开，请重新点选。');
+  // 核心写入（无焦点依赖）：单框填写与批量补齐共用；返回写入前后的快照信息。
+  async function writeEl(el, content) {
+    if (!editable(el)) throw new Error('输入框已失效。');
     if (typeof content !== 'string' || !content.length) throw new Error('空内容不会写入，避免清空网页已有内容。');
     if (content.length > 32767) throw new Error('内容超过 32767 字符，未写入。');
     let actual = content;
     if (el instanceof HTMLSelectElement) {
       const options = Array.from(el.options).filter((o) => !o.disabled && !o.hidden && !(o.parentElement?.disabled));
-      const matches = options.filter((o) => o.value === content || o.textContent?.trim() === content);
-      if (matches.length !== 1) throw new Error('下拉选项无法唯一匹配，请在网页手动选择。');
+      const norm = (s) => String(s).replace(/\s+/g, '').toLowerCase();
+      // 两级匹配：精确（value 或文本等值）可多个取第一个（同文本选项对用户无差异）；
+      // 宽容（包含关系）必须唯一，否则歧义拒绝，避免猜错。
+      const exact = options.filter((o) => o.value === content || norm(o.textContent || '') === norm(content));
+      const loose = options.filter((o) => norm(o.textContent || '').includes(norm(content)) || norm(content).includes(norm(o.textContent || '')));
+      const matches = exact.length ? exact : loose;
+      if (!matches.length) throw new Error('下拉选项里没有匹配项，请手动选择。');
+      if (matches.length > 1 && !exact.length) throw new Error('下拉选项匹配到多项，无法确定该填哪个，请手动选择。');
       actual = matches[0].value;
     } else if (el instanceof HTMLInputElement) {
       const probe = document.createElement('input');
@@ -102,10 +107,97 @@
     const selection = typeof el.selectionStart === 'number' ? { start: el.selectionStart, end: el.selectionEnd } : null;
     assignValue(el, actual);
     fire(el, 'insertReplacementText', content);
-    await new Promise((r) => setTimeout(r, 160));
+    await new Promise((r) => setTimeout(r, 140));
     if (!el.isConnected || nativeValue(el) !== actual) throw new Error('网页没有保留写入的内容（可能使用了定制编辑器），请核对页面。');
-    undoState = { el, before, nodes, selection, after: actual };
-    return { label: labelOf(el), characters: content.length };
+    return { before, nodes, selection, after: actual, label: labelOf(el), characters: content.length };
+  }
+
+  async function write(tokenValue, content) {
+    if (!current || current.token !== tokenValue) throw new Error('目标输入框已变化，请在网页重新点选。');
+    const el = current.el;
+    if (!editable(el) || rootEditable(activeEl()) !== el) throw new Error('输入框已失效或焦点已移开，请重新点选。');
+    const result = await writeEl(el, content);
+    undoState = { el, before: result.before, nodes: result.nodes, selection: result.selection, after: result.after };
+    return { label: result.label, characters: result.characters };
+  }
+
+  // ===== 批量补齐：扫描本页空输入框 → 按索引批量写入 → 批量撤回 =====
+  let scanList = [];       // 扫描到的空框（本次文档生命周期内有效）
+  let batchUndo = null;    // [{ el, before, nodes, after }]
+
+  const deepInputs = (root, out) => {
+    for (const el of root.querySelectorAll('input, textarea, select, [contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]')) {
+      if (editable(el)) out.push(el);
+    }
+    for (const host of root.querySelectorAll('*')) {
+      if (host.shadowRoot) deepInputs(host.shadowRoot, out);
+    }
+  };
+
+  // 网申表单常见的「label 在左侧兄弟节点」布局：向上找两层取前兄弟文本
+  const nearbyText = (el) => {
+    let node = el;
+    for (let up = 0; up < 3 && node; up++) {
+      let sib = node.previousElementSibling;
+      for (let k = 0; k < 3 && sib; k++) {
+        const text = (sib.innerText || sib.textContent || '').trim().replace(/\s+/g, ' ');
+        if (text && text.length <= 40 && !/^[*＊:：]+$/.test(text)) return text;
+        sib = sib.previousElementSibling;
+      }
+      node = node.parentElement;
+    }
+    return '';
+  };
+
+  function scanEmpty() {
+    const all = [];
+    deepInputs(document, all);
+    scanList = all.filter((el) => {
+      if (el instanceof HTMLInputElement && el.type === 'file') return false;
+      if (el instanceof HTMLSelectElement) {
+        if (el.value) return false;
+        return el.options.length > 1;   // 只有一个 option 的 select 通常是占位
+      }
+      return !nativeValue(el).trim();
+    });
+    return scanList.slice(0, 60).map((el, index) => ({
+      index,
+      label: nearbyText(el) ? nearbyText(el) + '｜' + labelOf(el) : labelOf(el),
+      kind: el.tagName.toLowerCase(),
+      inputType: el.type || 'text',
+    }));
+  }
+
+  async function batchFill(items) {
+    if (!Array.isArray(items) || !items.length) throw new Error('没有要填写的项。');
+    const undoEntries = [];
+    const results = [];
+    for (const item of items) {
+      const el = scanList[Number(item.index)];
+      if (!el) { results.push({ label: '已失效的输入框', ok: false, error: '页面已变化，请重新扫描。' }); continue; }
+      try {
+        const r = await writeEl(el, String(item.value || ''));
+        undoEntries.push({ el, before: r.before, nodes: r.nodes, after: r.after });
+        results.push({ label: r.label, ok: true, characters: r.characters });
+      } catch (e) {
+        results.push({ label: labelOf(el), ok: false, error: e.message || '写入失败。' });
+      }
+    }
+    if (undoEntries.length) batchUndo = undoEntries;
+    return { results, filled: undoEntries.length, failed: results.length - undoEntries.length };
+  }
+
+  function undoBatch() {
+    if (!batchUndo) throw new Error('当前页面没有批量填入记录。');
+    let restored = 0;
+    for (const u of batchUndo) {
+      if (!editable(u.el) || nativeValue(u.el) !== u.after) continue;   // 用户已手动改过的不碰
+      if (u.nodes) u.el.replaceChildren(...u.nodes); else assignValue(u.el, u.before);
+      u.el.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'historyUndo' }));
+      restored += 1;
+    }
+    batchUndo = null;
+    return { restored };
   }
 
   function undoWrite() {
@@ -128,6 +220,19 @@
     }
     if (msg.type === 'UNDO_FIELD') {
       try { respond({ ok: true, data: undoWrite() }); } catch (e) { respond({ ok: false, error: e.message || '撤回失败。' }); }
+      return false;
+    }
+    if (msg.type === 'SCAN_EMPTY') {
+      try { respond({ ok: true, data: scanEmpty() }); } catch (e) { respond({ ok: false, error: e.message || '扫描失败。' }); }
+      return false;
+    }
+    if (msg.type === 'BATCH_FILL') {
+      batchFill(Array.isArray(msg.items) ? msg.items : [])
+        .then((data) => respond({ ok: true, data }), (e) => respond({ ok: false, error: e.message || '批量填入失败。' }));
+      return true;
+    }
+    if (msg.type === 'UNDO_BATCH') {
+      try { respond({ ok: true, data: undoBatch() }); } catch (e) { respond({ ok: false, error: e.message || '批量撤回失败。' }); }
       return false;
     }
     return false;

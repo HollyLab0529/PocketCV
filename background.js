@@ -117,11 +117,92 @@ chrome.runtime.onMessage.addListener((request, sender, respond) => {
         const tab = await activeTab();
         const undo = undos.get(tab.id);
         if (!undo) throw new Error('当前页面没有可撤回的填写。');
+        if (undo.batch) {
+          // 批量补齐的撤回：恢复各 frame 的写入前快照
+          let restored = 0;
+          for (const frameId of undo.frames || [0]) {
+            try {
+              const result = await chrome.tabs.sendMessage(tab.id, { type: 'UNDO_BATCH' }, { frameId });
+              if (result?.ok) restored += result.data?.restored || 0;
+            } catch { /* 该 frame 已跳转，跳过 */ }
+          }
+          undos.delete(tab.id);
+          publish();
+          return { restored };
+        }
         const result = await chrome.tabs.sendMessage(tab.id, { type: 'UNDO_FIELD' }, { documentId: undo.documentId });
         if (!result?.ok) throw new Error(result?.error || '不能撤回，请核对网页。');
         undos.delete(tab.id);
         publish();
         return result.data;
+      }
+      // ===== 批量补齐：扫描空框 → 匹配后的批量写入 / 批量撤回 =====
+      case 'SCAN_EMPTY': {
+        const tab = await activeTab();
+        await connect(tab.id);   // 确保主文档与各 frame 已注入
+        const scanned = [];
+        const seen = new Set();
+        for (const frameId of [0]) {
+          try {
+            const result = await chrome.tabs.sendMessage(tab.id, { type: 'SCAN_EMPTY' }, { frameId });
+            if (result?.ok && Array.isArray(result.data)) {
+              for (const box of result.data) {
+                const key = box.label + '|' + box.kind;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                scanned.push({ ...box, frameId });
+              }
+            }
+          } catch { /* 该 frame 无表单，跳过 */ }
+        }
+        if (!scanned.length) throw new Error('本页没有扫描到空输入框（表单可能在跨域框架内，或已全部填写）。');
+        return scanned;
+      }
+      case 'BATCH_FILL': {
+        const tab = await activeTab();
+        const items = Array.isArray(request.items) ? request.items : [];
+        if (!items.length) throw new Error('没有要填写的项。');
+        const byFrame = new Map();
+        for (const item of items) {
+          const frameId = Number.isInteger(item.frameId) ? item.frameId : 0;
+          if (!byFrame.has(frameId)) byFrame.set(frameId, []);
+          byFrame.get(frameId).push({ index: item.index, value: item.value });
+        }
+        const results = [];
+        let filled = 0, failed = 0;
+        for (const [frameId, frameItems] of byFrame) {
+          try {
+            const result = await chrome.tabs.sendMessage(tab.id, { type: 'BATCH_FILL', items: frameItems }, { frameId });
+            if (result?.ok && result.data) {
+              results.push(...result.data.results);
+              filled += result.data.filled;
+              failed += result.data.failed;
+            } else {
+              failed += frameItems.length;
+              results.push(...frameItems.map(() => ({ label: '填入失败', ok: false, error: result?.error || '框架无响应。' })));
+            }
+          } catch (e) {
+            failed += frameItems.length;
+            results.push(...frameItems.map(() => ({ label: '填入失败', ok: false, error: e.message || '框架无响应。' })));
+          }
+        }
+        if (filled) { undos.set(tab.id, { batch: true, frames: Array.from(byFrame.keys()) }); publish(); }
+        return { results, filled, failed };
+      }
+      case 'UNDO_BATCH': {
+        const tab = await activeTab();
+        const undo = undos.get(tab.id);
+        if (!undo?.batch) throw new Error('当前页面没有批量填入记录。');
+        let restored = 0;
+        for (const frameId of undo.frames || [0]) {
+          try {
+            const result = await chrome.tabs.sendMessage(tab.id, { type: 'UNDO_BATCH' }, { frameId });
+            if (result?.ok) restored += result.data?.restored || 0;
+          } catch { /* 该 frame 已跳转，跳过 */ }
+        }
+        undos.delete(tab.id);
+        publish();
+        return { restored };
       }
       default: throw new Error('不支持此操作。');
     }

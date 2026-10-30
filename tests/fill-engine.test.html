@@ -34,9 +34,14 @@ if (!(window.chrome && window.chrome.runtime && window.chrome.runtime.id === 'po
     <option value="bachelor">本科</option>
     <option value="master">硕士</option>
   </select></label>
-  <label>城市（select，无法唯一匹配）<select id="ambiguous">
+  <label>城市（select，同名选项取第一个）<select id="ambiguous">
     <option value="a">北京</option>
     <option value="b">北京</option>
+  </select></label>
+  <label>子区域（select，模糊匹配多项应拒绝）<select id="fuzzy-many">
+    <option value="">请选择</option>
+    <option value="cy">北京市朝阳区</option>
+    <option value="hd">北京市海淀区</option>
   </select></label>
   <input id="limit-5" type="text" maxlength="5">
   <input id="blocked" type="text" value="">
@@ -88,7 +93,7 @@ if (!(window.chrome && window.chrome.runtime && window.chrome.runtime.id === 'po
 
     // 2. 原生 setter + input 事件 写入受控组件
     const w1 = await send({ type: 'WRITE_FIELD', token: f1.token, value: '测试用户' });
-    t('受控组件写入成功', w1.ok && w1.data.characters === 3, JSON.stringify(w1));
+    t('受控组件写入成功', w1.ok && w1.data.characters === 4, JSON.stringify(w1));
     await sleep(10);
     t('受控组件 state 已同步', document.getElementById('react-name').getState() === '测试用户', 'state=' + document.getElementById('react-name').getState());
     t('受控组件 DOM 显示正确', document.getElementById('react-state').textContent === 'state=测试用户');
@@ -111,10 +116,15 @@ if (!(window.chrome && window.chrome.runtime && window.chrome.runtime.id === 'po
     const w6 = await send({ type: 'WRITE_FIELD', token: lastFocus().token, value: '硕士' });
     t('select 文本唯一匹配写入', w6.ok && document.getElementById('degree').value === 'master', 'val=' + document.getElementById('degree').value);
 
-    // 7. select 两个同名选项 → 拒绝
-    focusOn(document.getElementById('ambiguous'));
-    const w7 = await send({ type: 'WRITE_FIELD', token: lastFocus().token, value: '北京' });
-    t('select 歧义选项被拒绝', !w7.ok && document.getElementById('ambiguous').value !== 'b', JSON.stringify(w7));
+  // 7. select 两个同名选项 → 同文本无感知差异，填第一个（a）
+  focusOn(document.getElementById('ambiguous'));
+  const w7 = await send({ type: 'WRITE_FIELD', token: lastFocus().token, value: '北京' });
+  t('select 同名选项填第一个', w7.ok && document.getElementById('ambiguous').value === 'a', JSON.stringify(w7));
+
+  // 7b. select 模糊匹配命中多项（朝阳区/海淀区）→ 拒绝，避免猜错
+  focusOn(document.getElementById('fuzzy-many'));
+  const w7b = await send({ type: 'WRITE_FIELD', token: lastFocus().token, value: '北京市' });
+  t('select 模糊多项被拒绝', !w7b.ok && document.getElementById('fuzzy-many').value === '', JSON.stringify(w7b));
 
     // 8. maxLength 超限 → 拒绝且不清空
     focusOn(document.getElementById('limit-5'));
