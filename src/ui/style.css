@@ -71,8 +71,9 @@ body{font:13px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;back
 .record-index{font-size:11px;color:var(--muted);flex-shrink:0}
 .record-title{font-weight:600;flex-shrink:0}
 .record-summary{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.chevron{color:var(--muted);flex-shrink:0}
-.record[data-open=false] .chevron{transform:rotate(90deg)}
+.chevron{color:var(--muted);flex-shrink:0;transition:transform .15s ease}
+.record-toggle:hover .chevron{color:var(--ink)}
+.record[data-open=false] .chevron{transform:rotate(-90deg)}
 .record-bottom{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
 .group-label{font-size:11px;color:var(--muted);margin:10px 0 6px;padding-left:2px;letter-spacing:.04em}
 .field-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(240px,100%),1fr));gap:8px 14px;margin-top:4px}
