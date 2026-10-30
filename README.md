@@ -71,6 +71,10 @@ node --check background.js bridge/content.js src/ui/app.js   # 语法
 python3 -m http.server 8765
 ```
 
+## 反馈
+
+遇到问题或有功能建议，欢迎到 [Issues](https://github.com/xiaohanxu0529/PocketCV/issues) 提交；插件内「更多 → 反馈问题 / 建议」可直达。为保护隐私，本项目不提供维护者邮箱，也不在 Issue 之外收集任何反馈。
+
 ## License
 
 MIT © 2026 xiaohanxu0529 (GitHub)

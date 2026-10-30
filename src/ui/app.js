@@ -41,6 +41,9 @@ let undoAvailable = false;     // 当前网页是否有可撤回的填写
 let bannerNode = null;
 const sessionTrusted = new Set(); // 本次会话内已确认过的网站 origin
 
+const FEEDBACK_URL = 'https://github.com/xiaohanxu0529/PocketCV/issues';
+const openFeedback = () => window.open(FEEDBACK_URL, '_blank');
+
 const toast = (text, error = false) => {
   clearTimeout(toastTimer);
   toastRoot.replaceChildren(h('div', { class: `toast${error ? ' error' : ''}`, text }));
@@ -669,7 +672,8 @@ function buildShell() {
             ['导出资料 / 空白模板', exportDialog, 'download'],
             ['导入资料文件', importDialog, 'upload'],
             ['本地历史版本', historyDialog, 'history'],
-          ]), { kind: 'quiet', symbol: 'menu', title: '字体 / 主题 / 导出 / 导入 / 历史' })));
+            ['反馈问题 / 建议', openFeedback, 'target'],
+          ]), { kind: 'quiet', symbol: 'menu', title: '字体 / 主题 / 导出 / 导入 / 历史 / 反馈' })));
 
   navNode = h('nav', { class: 'module-nav', 'aria-label': '资料分类' });
   const navBottom = h('div', { class: 'nav-bottom' },
@@ -700,6 +704,7 @@ async function moreMenu(actions = [
   ['导出资料 / 空白模板', exportDialog, 'download'],
   ['导入资料文件', importDialog, 'upload'],
   ['本地历史版本', historyDialog, 'history'],
+  ['反馈问题 / 建议', openFeedback, 'target'],
   ['清除全部资料', 'erase', 'trash', 'quiet danger'],
 ]) {
   const action = await modal('更多操作', ({ body, finish }) => {
