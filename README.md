@@ -73,4 +73,4 @@ python3 -m http.server 8765
 
 ## License
 
-MIT © 2026 徐笑晗
+MIT © 2026 xiaohanxu0529 (GitHub)
