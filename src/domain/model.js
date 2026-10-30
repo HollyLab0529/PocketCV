@@ -48,16 +48,20 @@ export function starterProfile() {
     makeField('求职类型', '', 'text'),
     makeField('到岗时间', '', 'text'),
   ]));
-  // 基本信息
+  // 基本信息（对齐同类插件：证件/民族/户口等网申常见固定字段）
   const basic = makeModule('基本信息');
   basic.entries.push(makeEntry('基本资料', [
     makeField('姓名', '', 'text'),
+    makeField('性别', '', 'text'),
+    makeField('出生日期', '', 'date'),
+    makeField('证件类型', '', 'text'),
+    makeField('证件号码', '', 'text', true),
     makeField('手机', '', 'tel', true),
     makeField('邮箱', '', 'email'),
-    makeField('性别', '', 'text'),
-    makeField('出生年月', '', 'month'),
-    makeField('现居住城市', '', 'text'),
+    makeField('民族', '', 'text'),
     makeField('政治面貌', '', 'text'),
+    makeField('现居住城市', '', 'text'),
+    makeField('户口所在地', '', 'text'),
     makeField('个人主页 / 作品集', '', 'url'),
   ]));
   // 教育经历
@@ -66,7 +70,7 @@ export function starterProfile() {
     makeField('学校', '', 'text'),
     makeField('学院 / 专业', '', 'text'),
     makeField('学历 / 学位', '', 'text'),
-    makeField('起止时间', '', 'text'),
+    makeField('在校时间', '', 'text'),
     makeField('绩点 / 排名', '', 'text'),
     makeField('主修课程', '', 'multiline'),
   ]));
@@ -75,6 +79,7 @@ export function starterProfile() {
   intern.entries.push(makeEntry('示例公司 · 岗位', [
     makeField('单位名称', '', 'text'),
     makeField('岗位', '', 'text'),
+    makeField('所在城市', '', 'text'),
     makeField('起止时间', '', 'text'),
     makeField('工作描述', '', 'multiline'),
     makeField('主要成果', '', 'multiline'),
@@ -83,6 +88,7 @@ export function starterProfile() {
   const proj = makeModule('项目经历');
   proj.entries.push(makeEntry('项目名称', [
     makeField('担任角色', '', 'text'),
+    makeField('项目链接', '', 'url'),
     makeField('起止时间', '', 'text'),
     makeField('项目描述', '', 'multiline'),
     makeField('技术栈 / 方法', '', 'text'),
@@ -118,8 +124,8 @@ export function starterProfile() {
   // 其他资料（备用）
   const other = makeModule('其他资料', '备用');
   other.entries.push(makeEntry('补充信息', [
-    makeField('身份证号', '', 'text', true),
     makeField('紧急联系人', '', 'text'),
+    makeField('紧急联系人电话', '', 'tel', true),
     makeField('其他补充', '', 'multiline'),
   ]));
   p.modules.push(intent, basic, edu, intern, proj, campus, skill, award, self, other);

@@ -225,6 +225,11 @@ body[data-view='panel'] .banner .btn .icon{display:none}
 .empty-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
 .menu-gap{height:8px;margin:8px 0 2px;border-top:1px solid var(--line)}
 
+/* 空态紧凑提示条：资料全空时字段行照常显示，仅顶部提示 */
+.empty-hint{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px dashed var(--line);border-radius:var(--radius);background:var(--surface);padding:10px 12px;margin-bottom:10px}
+.empty-hint-text{flex:1 1 200px;min-width:0;font-size:12.5px;color:var(--muted)}
+.empty-hint .btn{flex-shrink:0}
+
 /* ===== AI 一键识别（第 8 期） ===== */
 .ai-import-list{max-height:38vh;overflow:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg);padding:10px 12px;margin-top:10px}
 .ai-import-module{font-weight:600;font-size:12.5px;margin:10px 0 4px;color:var(--ink)}
