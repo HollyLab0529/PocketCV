@@ -755,15 +755,12 @@ function renderModule() {
       button('添加分类', addModule, { kind: 'primary', symbol: 'plus' })));
     return;
   }
-  // 填写模式下资料全空：给出去处，不要死界面
+  // 填写模式下资料全空：紧凑提示条（字段行照常显示，方便核对固定字段；面板内不可编辑，给出编辑入口）
   if (fillMode && stats(profile).filled === 0) {
-    listNode.append(h('div', { class: 'empty-state' },
-      h('p', { class: 'modal-description', text: '资料还是空的，先填充内容才能往网页填入。' }),
-      h('div', { class: 'empty-actions' },
-        button('AI 一键识别简历', aiImportDialog, { kind: 'primary', symbol: 'scan' }),
-        button('打开编辑资料', () => window.open(chrome?.runtime?.getURL ? chrome.runtime.getURL('manager.html') : 'manager.html', '_blank'), { kind: 'quiet', symbol: 'edit' }),
-        button('导出空白模板给 AI 填', exportDialog, { kind: 'quiet', symbol: 'download' }))));
-    return;
+    listNode.append(h('div', { class: 'empty-hint' },
+      h('span', { class: 'empty-hint-text', text: '资料还是空的——内容要在「编辑资料」里填，或让 AI 识别简历代填。' }),
+      button('AI 一键识别', aiImportDialog, { kind: 'primary', symbol: 'scan' }),
+      button('编辑资料', () => window.open(chrome?.runtime?.getURL ? chrome.runtime.getURL('manager.html') : 'manager.html', '_blank'), { kind: 'quiet', symbol: 'edit' })));
   }
   if (!m.entries.length) {
     listNode.append(h('div', { class: 'empty-state' },
