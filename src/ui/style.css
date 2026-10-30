@@ -45,7 +45,9 @@ body{font:13px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;back
 .shell{display:flex;flex:1;min-height:0}
 .sidebar{width:168px;flex-shrink:0;border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;overflow-y:auto}
 .module-nav{flex:1;padding:10px 8px;display:flex;flex-direction:column;gap:2px}
-.tier-label{font-size:11px;color:var(--muted);padding:10px 8px 3px;letter-spacing:.05em}
+.tier-label{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--accent);padding:12px 8px 4px;letter-spacing:.08em}
+.tier-label::after{content:'';flex:1;height:1px;background:var(--line)}
+.tier-label:first-child{padding-top:4px}
 .nav-item{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;color:var(--ink);border-radius:var(--radius);padding:7px 8px;font:inherit;cursor:pointer;text-align:left}
 .nav-item:hover{background:var(--accent-soft)}
 .nav-item.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
@@ -58,7 +60,8 @@ body{font:13px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;back
 .nav-empty{font-size:12px;color:var(--muted);padding:8px}
 .workspace{flex:1;min-width:0;overflow:auto;padding:14px 16px}
 .workspace-head{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
-.head-title{font-size:16px;font-weight:700;margin:0}
+.head-title{font-size:17px;font-weight:700;margin:0}
+.module-tier{font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-soft);border-radius:99px;padding:2px 9px;letter-spacing:.06em}
 .head-meta{font-size:12px;color:var(--muted)}
 
 /* 记录卡片 */
