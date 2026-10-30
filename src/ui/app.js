@@ -1414,6 +1414,35 @@ async function main() {
       } catch { /* 升级失败则保留原样 */ }
     }
   }
+  // 字段包升级：同名分类缺失的默认字段自动补齐（只补不覆盖；每份资料只跑一次，标记存 prefs）
+  if (!prefs.fieldPackV3) {
+    const starter = starterProfile();
+    let changed = false;
+    for (const sm of starter.modules) {
+      const m = profile.modules.find((x) => x.name === sm.name);
+      if (!m || !m.entries.length) continue;
+      const known = new Set(m.entries.flatMap((e) => e.fields.map((f) => f.label)));
+      for (const sf of sm.entries[0].fields) {
+        if (known.has(sf.label)) continue;
+        known.add(sf.label);
+        m.entries[0].fields.push(sf);   // 复用 starter 字段对象（id/type/sensitive 齐全，validateProfile 会深拷贝）
+        changed = true;
+      }
+    }
+    if (changed) {
+      try {
+        const upgraded = await repo.replaceAll(validateProfile(profile), '补齐默认字段');
+        profile = upgraded.profile;
+        revision = profile.revision;
+        epoch = upgraded.epoch;
+        prefs.fieldPackV3 = true;
+        savePrefs();
+      } catch { /* 升级失败下次加载重试 */ }
+    } else {
+      prefs.fieldPackV3 = true;
+      savePrefs();
+    }
+  }
   render();
   repo.subscribe((state) => {
     if (!state?.profile) return;
