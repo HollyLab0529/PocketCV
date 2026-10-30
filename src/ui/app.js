@@ -307,8 +307,7 @@ async function viewField(field, note = '') {
     if (note) body.append(h('p', { class: 'modal-description', text: note }));
     body.append(h('pre', { class: 'field-fulltext', text: field.value }));
     foot.append(h('span', { class: 'spacer' }),
-      button('复制', () => navigator.clipboard.writeText(field.value).catch(() => {}), { kind: 'quiet', symbol: 'copy' }),
-      button('关闭', () => finish(null), { kind: 'primary' }));
+      button('复制', () => navigator.clipboard.writeText(field.value).catch(() => {}), { kind: 'primary', symbol: 'copy' }));
   });
 }
 
@@ -657,19 +656,19 @@ function buildShell() {
   root.replaceChildren(topbar, ...(fillMode && bannerNode ? [bannerNode] : []), shell, bottom);
 }
 
-/** 低频管理动作收进「更多」菜单；actions: [label, handler, symbol][] */
+/** 低频管理动作收进「更多」菜单；actions: [label, handler, symbol, kind?]，
+ *  填写模式默认含「清除全部资料」；manager 底栏已常驻同一入口，传入的列表不再重复。 */
 async function moreMenu(actions = [
   ['AI 一键识别简历', aiImportDialog, 'scan'],
   ['AI 按 JD 定制', aiDialog, 'spark'],
   ['导出资料 / 空白模板', exportDialog, 'download'],
   ['导入资料文件', importDialog, 'upload'],
   ['本地历史版本', historyDialog, 'history'],
+  ['清除全部资料', 'erase', 'trash', 'quiet danger'],
 ]) {
-  const action = await modal('更多操作', ({ body, foot, finish }) => {
+  const action = await modal('更多操作', ({ body, finish }) => {
     body.append(h('p', { class: 'modal-description', text: '不常用的管理动作都收在这里。' }));
-    for (const [label, handler, symbol] of actions) body.append(button(label, () => finish(handler), { kind: 'quiet', symbol }));
-    body.append(h('div', { class: 'menu-gap' }), button('清除全部资料', () => finish('erase'), { kind: 'quiet danger', symbol: 'trash' }));
-    foot.append(h('span', { class: 'spacer' }), button('关闭', () => finish(null), { kind: 'quiet' }));
+    for (const [label, handler, symbol, kind] of actions) body.append(button(label, () => finish(handler), { kind: kind || 'quiet', symbol }));
   });
   if (!action) return;
   if (action === 'erase') await eraseAll();
@@ -889,7 +888,7 @@ async function moduleSettings(moduleId) {
         button('上移', () => shift(-1), { kind: 'quiet', disabled: index === 0 }),
         button('下移', () => shift(1), { kind: 'quiet', disabled: index === profile.modules.length - 1 })),
     );
-    foot.append(button('删除分类…', remove, { kind: 'danger' }), h('span', { class: 'spacer' }), button('关闭', () => finish(null), { kind: 'quiet' }));
+    foot.append(button('删除分类…', remove, { kind: 'danger' }), h('span', { class: 'spacer' }));
   });
   render();
 }
@@ -961,7 +960,7 @@ async function entryMenu(moduleId, entryId) {
         button('上移', () => shift(-1), { kind: 'quiet', disabled: index === 0 }),
         button('下移', () => shift(1), { kind: 'quiet', disabled: index === m.entries.length - 1 })),
     );
-    foot.append(button('删除记录…', remove, { kind: 'danger' }), h('span', { class: 'spacer' }), button('关闭', () => finish(null), { kind: 'quiet' }));
+    foot.append(button('删除记录…', remove, { kind: 'danger' }), h('span', { class: 'spacer' }));
   });
   render();
 }
@@ -1339,7 +1338,7 @@ async function historyDialog() {
       body.append(h('p', { class: 'modal-description', text: '在删除、导入等操作前自动保留，最多 3 份。不是云备份。' }));
       if (!snapshots.length) body.append(h('p', { class: 'modal-description', text: '暂无历史版本。' }));
       snapshots.forEach((s, i) => body.append(button(`${s.label || '快照'} · ${new Date(s.at).toLocaleString()}`, () => finish(i), { kind: 'quiet' })));
-      foot.append(h('span', { class: 'spacer' }), button('关闭', () => finish(null), { kind: 'quiet' }));
+      foot.append(h('span', { class: 'spacer' }));
     });
     if (chosen === null || !snapshots[chosen]) return;
     if (!await confirmAction('恢复历史', '当前资料将先存入历史，再恢复所选版本。', '恢复')) return;

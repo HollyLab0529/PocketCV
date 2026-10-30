@@ -77,8 +77,11 @@ export function modal(title, build, { wide = false } = {}) {
     };
     const body = h('div', { class: 'modal-body' });
     const foot = h('div', { class: 'modal-foot' });
+    // 头部只留 × 图标关闭；文字级取消/关闭动作由各弹窗底部按钮承担，避免同一动作两处重复
+    const headClose = button('关闭', () => finish(null), { kind: 'quiet icon-only', symbol: 'close', title: '关闭（Esc）' });
+    headClose.classList.add('modal-close');
     dialog.append(
-      h('header', { class: 'modal-head' }, h('h2', { text: title }), button('关闭', () => finish(null), { kind: 'quiet' })),
+      h('header', { class: 'modal-head' }, h('h2', { text: title }), headClose),
       body, foot,
     );
     dialog.addEventListener('cancel', (e) => { e.preventDefault(); finish(null); });
