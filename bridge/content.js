@@ -155,7 +155,9 @@
     const all = [];
     deepInputs(document, all);
     scanList = all.filter((el) => {
-      if (el instanceof HTMLInputElement && ['file', 'password', 'checkbox', 'radio'].includes(el.type)) return false;
+      if (el instanceof HTMLInputElement && ['file', 'password', 'checkbox', 'radio', 'search'].includes(el.type)) return false;
+      // 页头/导航里的输入框（全站搜索框等）不是表单字段，匹配上去只会误导
+      if (el.closest('nav, header, [role="banner"], [role="search"]')) return false;
       if (el instanceof HTMLSelectElement) return el.options.length > 1;   // 只有一个 option 的 select 通常是占位
       return true;
     });
@@ -224,6 +226,18 @@
     return { label: labelOf(u.el) };
   }
 
+  // 在网页上高亮定位某个扫描到的框（未识别空框列表点击跳转用）
+  function gotoBox(index) {
+    const el = scanList[Number(index)];
+    if (!el) throw new Error('页面已变化，请重新扫描。');
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.focus({ preventScroll: true });
+    const old = el.style.cssText;
+    el.style.cssText += `;outline:2px solid #3a7d5c !important;outline-offset:2px;transition:outline-color .8s;`;
+    setTimeout(() => { el.style.cssText = old; }, 1600);
+    return { label: labelOf(el) };
+  }
+
   chrome.runtime.onMessage.addListener((msg, sender, respond) => {
     if (sender.id !== chrome.runtime.id || !msg || typeof msg.type !== 'string') return false;
     if (msg.type === 'WRITE_FIELD') {
@@ -237,6 +251,10 @@
     }
     if (msg.type === 'SCAN_PAGE') {
       try { respond({ ok: true, data: scanPage() }); } catch (e) { respond({ ok: false, error: e.message || '扫描失败。' }); }
+      return false;
+    }
+    if (msg.type === 'GOTO_BOX') {
+      try { respond({ ok: true, data: gotoBox(msg.index) }); } catch (e) { respond({ ok: false, error: e.message || '定位失败。' }); }
       return false;
     }
     if (msg.type === 'BATCH_FILL') {

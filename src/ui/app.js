@@ -5,7 +5,7 @@ import { createRepository, isExtension, message } from '../infra/repository.js';
 import { encryptProfile, decryptProfile } from '../infra/vault.js';
 import { exportProfileWorkbook, importProfileWorkbook } from '../infra/xlsx.js';
 import { h, icon, button, inputLabel, saveFile, modal, confirmAction } from './kit.js';
-import { matchBoxes, sameValue } from './scan-match.js';
+import { matchBoxes, matchDateComponents, sameValue } from './scan-match.js';
 
 const panel = document.body.dataset.view === 'panel';
 // ?debug=fill ：非扩展环境预览填写模式（本地页面/联调用；扩展内无副作用）
@@ -287,7 +287,7 @@ function renderBanner() {
       button('重新连接', connectPage, { kind: 'quiet', symbol: 'target' }));
     return;
   }
-  // 有写入记录：不再重复「先点选输入框」提示，突出可撤回
+  // 有写入记录：不再重复「先点选输入框」提示，突出可撤回；一键核对会自动连接，无需额外按钮
   if (undoAvailable) {
     bannerNode.append(
       icon('check', 15),
@@ -295,11 +295,10 @@ function renderBanner() {
         h('span', { class: 'banner-label', text: '已写入本页' }),
         h('span', { class: 'banner-hint', text: filledCount ? `本轮已填入 ${filledCount} 项，请在网页核对。` : '本页有已写入的内容。', title: '在网页上核对内容；确认无误后手动提交。' })),
       h('span', { class: 'spacer' }),
-      button('撤销填写', undoFill, { kind: 'quiet', symbol: 'undo' }),
-      button('连接当前网页', connectPage, { kind: 'quiet', symbol: 'target' }));
+      button('撤销填写', undoFill, { kind: 'quiet', symbol: 'undo' }));
     return;
   }
-  // 从未写入：展示一次操作提示，可收起；收起后只留连接按钮
+  // 从未写入：展示一次操作提示，可收起；收起后保持极简（一键核对/点字段行都会自动连接，无需单独按钮）
   if (!bannerHintDismissed) {
     bannerNode.append(
       icon('target', 15),
@@ -307,16 +306,13 @@ function renderBanner() {
         h('span', { class: 'banner-label', text: '未连接网页' }),
         h('span', { class: 'banner-hint', text: '点「一键核对」自动补齐本页；也可以先在网页点选输入框，再点字段行填入。', title: '点「一键核对」自动补齐本页；也可以先在网页点选输入框，再点字段行填入。' })),
       h('span', { class: 'spacer' }),
-      button('', () => { bannerHintDismissed = true; renderBanner(); }, { kind: 'quiet icon-only', symbol: 'close', title: '收起提示（本次会话不再显示）' }),
-      button('连接当前网页', connectPage, { kind: 'primary', symbol: 'target' }));
+      button('', () => { bannerHintDismissed = true; renderBanner(); }, { kind: 'quiet icon-only', symbol: 'close', title: '收起提示（本次会话不再显示）' }));
     return;
   }
   bannerNode.append(
     icon('target', 15),
     h('span', { class: 'banner-text' },
-      h('span', { class: 'banner-label', text: '未连接网页' })),
-    h('span', { class: 'spacer' }),
-    button('连接当前网页', connectPage, { kind: 'primary', symbol: 'target' }));
+      h('span', { class: 'banner-label', text: '未连接网页' })));
 }
 
 async function sensitiveConsent(field) {
@@ -353,24 +349,57 @@ async function fillEmpties() {
   const conflicts = matches.filter((m) => !!m.box.value && !sameValue(m.box.value, m.field.value));
   const unknown = boxes.filter((b) => !matchedBox.has(b) && !b.value);
   const sameCount = matches.length - fills.length - conflicts.length;
+  // 日期分框（年/月/日 或 年月整体框）：按记录锚点拆「起止时间」，默认不勾选，由用户核对
+  const datePicks = matchDateComponents(boxes, matches, profile);
   const coverage = `本页共 ${boxes.length} 个输入框：可补齐 ${fills.length} · 可纠错 ${conflicts.length} · 需手动 ${unknown.length}`
+    + (datePicks.length ? ` · 日期 ${datePicks.length}` : '')
     + (sameCount ? ` · 已一致 ${sameCount}` : '');
-  // 彩色版覆盖汇总：绿=可补齐、橙=可纠错、灰=需手动，与下方分区颜色呼应
+  // 彩色可点击版覆盖汇总：点数字跳到对应分区；绿=可补齐、蓝=日期、橙=可纠错、灰=需手动
+  const sections = {};   // anchor name -> h4 元素，供汇总点击滚动
+  const scrollTo = (name) => sections[name]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const covChip = (name, cls, label, countNum) => {
+    if (!countNum) return h('span', { class: `cov ${cls}`, text: `${label} 0` });
+    return h('button', {
+      class: `cov cov-link ${cls}`, type: 'button', text: `${label} ${countNum}`,
+      title: `点击查看${label}的明细`, onclick: () => scrollTo(name),
+    });
+  };
   const coverageRich = () => h('p', { class: 'modal-description' },
     `本页共 ${boxes.length} 个输入框：`,
-    h('b', { class: 'cov cov-fill', text: `可补齐 ${fills.length}` }), ' · ',
-    h('b', { class: 'cov cov-conflict', text: `可纠错 ${conflicts.length}` }), ' · ',
-    h('b', { class: 'cov cov-manual', text: `需手动 ${unknown.length}` }),
+    covChip('fills', 'cov-fill', '可补齐', fills.length), ' · ',
+    covChip('dates', 'cov-date', '日期', datePicks.length), ' · ',
+    covChip('conflicts', 'cov-conflict', '可纠错', conflicts.length), ' · ',
+    covChip('unknown', 'cov-manual', '需手动', unknown.length),
     sameCount ? h('span', { class: 'cov cov-same', text: ` · 已一致 ${sameCount}` }) : null);
   // 多个空框无法自动填时，明确提醒用户（日期分框、自定义下拉、资料里没有的项），避免误以为已填完
   const manualWarn = () => h('p', { class: 'fill-warn', text: `⚠️ 本页有 ${unknown.length} 个输入框无法自动填（日期分框、下拉选择、或资料里没有对应项），提交前请逐个手动检查。` });
-  if (!fills.length && !conflicts.length) {
+  const shorten = (s) => { const t = String(s || '').replace(/\s+/g, ' '); return t.slice(0, 30) + (t.length > 30 ? '…' : ''); };
+  // 框名展示：主体取「｜」后真正的输入框名，前文上下文弱化展示，避免把导航文字当框名
+  const boxParts = (b) => {
+    const segs = String(b.label || '').split('｜');
+    const main = (segs[segs.length - 1] || b.label).slice(0, 24);
+    const ctx = segs.length > 1 ? segs[0].slice(0, 16) + (segs[0].length > 16 ? '…' : '') : '';
+    return { main, ctx };
+  };
+  function shortenBoxLabel(b) {
+    const { main, ctx } = boxParts(b);
+    return ctx ? `${main}（${ctx}）` : (main || '未命名输入框');
+  }
+  // 未识别空框：点一下可跳到网页上对应的框（高亮 1.6 秒），方便手动填写
+  const unknownItem = (b) => button(shortenBoxLabel(b), async () => {
+    try { await message('GOTO_BOX', { frameId: b.frameId, index: b.index }); } catch { /* 页面已跳转等场景忽略 */ }
+  }, { kind: 'quiet unknown-item', title: '点击在网页上定位这个输入框' });
+  if (!fills.length && !conflicts.length && !datePicks.length) {
     if (unknown.length >= 3) {
       await modal('本页核对结果', ({ body, foot, finish }) => {
         body.append(coverageRich());
         body.append(manualWarn());
-        body.append(h('h4', { class: 'fill-section-title t-unknown', text: `无法自动填写的输入框（${unknown.length} 个）` }));
-        body.append(h('p', { class: 'fill-unknown-list', text: unknown.map((b) => b.label.split('｜')[0].slice(0, 18)).join('、').slice(0, 300) }));
+        const h4 = h('h4', { class: 'fill-section-title t-unknown', text: `无法自动填写的输入框（${unknown.length} 个，点击可在网页上定位）` });
+        sections.unknown = h4;
+        body.append(h4);
+        const list = h('div', { class: 'fill-unknown-list' });
+        for (const b of unknown) list.append(unknownItem(b));
+        body.append(list);
         foot.append(h('span', { class: 'spacer' }),
           button('知道了，手动填写', () => finish(null), { kind: 'primary' }));
       });
@@ -379,31 +408,55 @@ async function fillEmpties() {
     }
     return;
   }
-  const shorten = (s) => { const t = String(s || '').replace(/\s+/g, ' '); return t.slice(0, 30) + (t.length > 30 ? '…' : ''); };
   const picks = await modal('核对本页表单', ({ body, foot, finish }) => {
     body.append(coverageRich());
     if (unknown.length >= 3) body.append(manualWarn());
-    if (fills.length) body.append(h('h4', { class: 'fill-section-title t-fill', text: `待补齐（${fills.length} 项，勾选后填入）` }));
     const rows = [];
-    for (const m of fills) {
-      const cb = h('input', { type: 'checkbox', checked: m.field.sensitive ? undefined : true });
-      const row = h('label', { class: 'check-row fill-empty-row' },
-        cb,
-        h('span', { class: 'fill-empty-main' },
-          h('b', { text: m.field.label }),
-          h('span', { class: 'fill-empty-target', text: '→ ' + m.box.label.slice(0, 36) })),
-        h('span', { class: 'fill-empty-value', text: (m.field.sensitive ? '🔒 ' : '') + shorten(m.field.value) }));
-      body.append(row);
-      rows.push({ cb, m });
-    }
-    if (conflicts.length) {
-      body.append(h('h4', { class: 'fill-section-title t-conflict', text: `网站已填内容与资料不一致（${conflicts.length} 项，默认保留网站内容；勾选改为资料值）` }));
-      for (const m of conflicts) {
+    if (datePicks.length) {
+      const h4 = h('h4', { class: 'fill-section-title t-date', text: `日期分框（${datePicks.length} 项，按出现顺序对应开始/结束，默认不勾选，请核对）` });
+      sections.dates = h4;
+      body.append(h4);
+      for (const p of datePicks) {
         const cb = h('input', { type: 'checkbox' });
-        const row = h('label', { class: 'check-row fill-empty-row fill-conflict-row' },
+        const row = h('label', { class: 'check-row fill-empty-row fill-date-row' },
           cb,
           h('span', { class: 'fill-empty-main' },
-            h('b', { text: m.field.label + '（' + m.box.label.slice(0, 20) + '）' }),
+            h('b', { text: shortenBoxLabel(p.box) }),
+            h('span', { class: 'fill-empty-target', text: p.hint })),
+          h('span', { class: 'fill-empty-value', text: p.value }));
+        body.append(row);
+        rows.push({ cb, date: p });
+      }
+    }
+    if (fills.length) {
+      const h4 = h('h4', { class: 'fill-section-title t-fill', text: `待补齐（${fills.length} 项，勾选后填入）` });
+      sections.fills = h4;
+      body.append(h4);
+      for (const m of fills) {
+        const cb = h('input', { type: 'checkbox', checked: m.field.sensitive ? undefined : true });
+        const { main, ctx } = boxParts(m.box);
+        const row = h('label', { class: 'check-row fill-empty-row', title: m.box.label },
+          cb,
+          h('span', { class: 'fill-empty-main' },
+            h('b', null, h('span', { class: 'tag tag-src', text: '资料' }), m.field.label),
+            h('span', { class: 'fill-empty-target' },
+              h('span', { class: 'tag tag-site', text: '网站框' }), main,
+              ctx ? h('span', { class: 'fill-empty-ctx', text: `　${ctx}` }) : null)),
+          h('span', { class: 'fill-empty-value', text: (m.field.sensitive ? '🔒 ' : '') + shorten(m.field.value) }));
+        body.append(row);
+        rows.push({ cb, m });
+      }
+    }
+    if (conflicts.length) {
+      const h4 = h('h4', { class: 'fill-section-title t-conflict', text: `网站已填内容与资料不一致（${conflicts.length} 项，默认保留网站内容；勾选改为资料值）` });
+      sections.conflicts = h4;
+      body.append(h4);
+      for (const m of conflicts) {
+        const cb = h('input', { type: 'checkbox' });
+        const row = h('label', { class: 'check-row fill-empty-row fill-conflict-row', title: m.box.label },
+          cb,
+          h('span', { class: 'fill-empty-main' },
+            h('b', null, h('span', { class: 'tag tag-src', text: '资料' }), m.field.label),
             h('span', { class: 'fill-diff-old', text: '网站：' + shorten(m.box.value) }),
             h('span', { class: 'fill-diff-new', text: (m.field.sensitive ? '🔒 ' : '') + '资料：' + shorten(m.field.value) })));
         body.append(row);
@@ -411,22 +464,27 @@ async function fillEmpties() {
       }
     }
     if (unknown.length) {
-      body.append(h('h4', { class: 'fill-section-title t-unknown', text: `未识别的空框（${unknown.length} 个仅提示，不自动填）` }));
-      body.append(h('p', { class: 'fill-unknown-list', text: unknown.map((b) => b.label.split('｜')[0].slice(0, 18)).join('、').slice(0, 200) }));
+      const h4 = h('h4', { class: 'fill-section-title t-unknown', text: `未识别的空框（${unknown.length} 个，点击可在网页上定位）` });
+      sections.unknown = h4;
+      body.append(h4);
+      const list = h('div', { class: 'fill-unknown-list' });
+      for (const b of unknown) list.append(unknownItem(b));
+      body.append(list);
     }
-    if (rows.some((x) => x.m.field.sensitive)) {
+    if (rows.some((x) => x.m?.field?.sensitive)) {
       body.append(h('p', { class: 'modal-description', text: '🔒 标记的是敏感字段，默认不勾选；确认本网站正规后再手动勾选。' }));
     }
     foot.append(h('span', { class: 'spacer' }),
       button('取消', () => finish(null), { kind: 'quiet' }),
-      button('填入选中项', () => finish(rows.filter((x) => x.cb.checked).map((x) => x.m)), { kind: 'primary' }));
+      button('填入选中项', () => finish(rows.filter((x) => x.cb.checked)), { kind: 'primary' }));
   });
   if (!picks || !picks.length) return;
-  toast(`正在写入 ${picks.length} 项…`);
+  const items = picks.map((x) => x.date
+    ? { frameId: x.date.box.frameId, index: x.date.box.index, value: x.date.value }
+    : { frameId: x.m.box.frameId, index: x.m.box.index, value: x.m.field.value });
+  toast(`正在写入 ${items.length} 项…`);
   try {
-    const result = await message('BATCH_FILL', {
-      items: picks.map((m) => ({ frameId: m.box.frameId, index: m.box.index, value: m.field.value })),
-    });
+    const result = await message('BATCH_FILL', { items });
     const okCount = result.filled, failCount = result.failed;
     if (okCount) { undoAvailable = true; filledCount += okCount; renderBanner(); }
     const fails = result.results.filter((r) => !r.ok);

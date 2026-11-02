@@ -30,7 +30,7 @@ const SYNONYMS = {
   '岗位': ['实习岗位', '职位', '职位名称', '担任职位', '工作岗位'],
   '所在城市': ['实习城市', '工作城市', '工作地点'],
   '起止时间': ['实习时间', '工作时间', '起止日期', '实习起止时间', '项目时间', '任职时间'],
-  '工作描述': ['实习描述', '工作内容', '工作职责', '职责描述', '实习内容', '项目中职责', '项目职责'],
+  '工作描述': ['实习描述', '工作内容', '工作职责', '职责描述', '实习内容', '项目中职责', '项目职责', '职责', '主要职责', '职责与成果'],
   '主要成果': ['实习成果', '工作成果', '主要业绩'],
   '担任角色': ['项目角色', '角色', '承担角色'],
   '项目链接': ['项目地址', '项目网址', 'demo 链接'],
@@ -81,8 +81,13 @@ const lcs = (a, b) => {
   }
   return best;
 };
-// 泛义修饰词头：只共享这类词头的两个字段多半是不同字段（如「期望城市」↔「期望薪资」），不宽容匹配
-const GENERIC_HEADS = new Set(['期望', '意向', '紧急', '其他', '主要', '最高', '首选', '相关', '基本']);
+// 泛义修饰词头：只共享这类词头的两个字段多半是不同字段，不宽容匹配
+// （如「工作描述」↔「工作地点」只差维度词、「期望城市」↔「期望薪资」只共享「期望」）
+const GENERIC_HEADS = new Set([
+  '期望', '意向', '紧急', '其他', '主要', '最高', '首选', '相关', '基本',
+  '工作', '项目', '经历', '内容', '信息', '情况', '名称', '时间', '描述', '说明',
+  '类型', '类别', '状态', '要求', '地点', '城市', '性质', '日期', '方式',
+]);
 
 // 把页面框的 label 拆成候选关键词：取「｜」前后两段分别参与匹配
 const labelParts = (label) => String(label || '').split(/[｜|]/).flatMap((part) => part.split(/[\s/·]+/)).map(norm).filter(Boolean);
@@ -147,4 +152,71 @@ export function matchBoxes(boxes, profile) {
     }
   }
   return matches.sort((a, b) => (a.confidence === b.confidence ? 0 : a.confidence === 'high' ? -1 : 1));
+}
+
+// ===== 日期分框匹配 =====
+// 网申网站的起止时间是 年/月/日 独立小框或「年月」整体框，无法按字段名对上资料。
+// 策略：以最近一条命中的记录（教育/实习/项目）为锚，解析该记录的「起止时间」类字段，
+// 同一段内的日期分框按出现次序对应 开始(第1个)→结束(第2个)。
+const DATE_PART = /^(年|月|日|年份|月份|年月)$/;
+const DATE_FIELD = /起止|时间段|在校|任职|期间|起止时间|时间/;
+const DATE_EXCLUDE = /出生|生日|身份证|证件/;
+
+// 解析「2023.06 – 2024.03」「2023年6月-2024年3月」「2023/06~2024/03」等写法
+export function parseDateRange(text) {
+  const halves = String(text).split(/\s*[–—~～\-]+\s*|\s*至\s*|\s*到\s*/).filter(Boolean);
+  const parseSide = (raw) => {
+    const nums = raw.match(/\d+/g) || [];
+    const year = nums.find((n) => n.length === 4) || '';
+    const rest = nums.filter((n) => n !== year);
+    const month = rest.length && Number(rest[0]) >= 1 && Number(rest[0]) <= 12 ? rest[0] : '';
+    const day = rest.length > 1 && Number(rest[1]) >= 1 && Number(rest[1]) <= 31 ? rest[1] : '';
+    return { text: raw.trim(), year, month, day };
+  };
+  if (!halves.length) return null;
+  const sides = [parseSide(halves[0])];
+  if (halves.length > 1) sides.push(parseSide(halves[1]));
+  return sides;
+}
+
+// 返回 [{ box, value, hint }]：hint 说明「开始/结束·年份/月份」及来源字段，UI 默认不勾选由用户确认
+export function matchDateComponents(boxes, matches, profile) {
+  const entryOfField = new Map();
+  for (const mod of profile.modules) {
+    for (const e of mod.entries) {
+      for (const f of e.fields) entryOfField.set(f.id, e);
+    }
+  }
+  const matchByBox = new Map(matches.map((m) => [m.box, m]));
+  const picks = [];
+  let sides = null;         // 当前记录的 [开始, 结束]
+  let sourceLabel = '';
+  let count = { 年: 0, 月: 0, 日: 0, 年月: 0 };
+  for (const box of boxes) {
+    if (DATE_EXCLUDE.test(box.label)) continue;
+    const m = matchByBox.get(box);
+    if (m) {
+      // 新记录锚点：命中了另一条记录的字段时重置日期上下文
+      const e = entryOfField.get(m.field.id);
+      if (e) {
+        const df = (e.fields || []).find((f) => DATE_FIELD.test(f.label) && typeof f.value === 'string' && f.value.trim());
+        sides = df ? parseDateRange(df.value) : null;
+        sourceLabel = df ? df.label : '';
+        count = { 年: 0, 月: 0, 日: 0, 年月: 0 };
+      }
+      continue;
+    }
+    if (!sides || box.value) continue;
+    const part = labelParts(box.label).find((p) => DATE_PART.test(p));
+    if (!part) continue;
+    const comp = part === '年份' ? '年' : part === '月份' ? '月' : part;
+    const idx = count[comp]++;
+    if (idx > 1) continue;                        // 一段记录最多 开始+结束 两轮
+    const side = sides[idx];
+    if (!side) continue;
+    const value = comp === '年' ? side.year : comp === '月' ? side.month : comp === '日' ? side.day : side.text;
+    if (!value) continue;
+    picks.push({ box, value, hint: `${idx ? '结束' : '开始'}·${comp} ← 资料「${sourceLabel}」${side.text}` });
+  }
+  return picks;
 }

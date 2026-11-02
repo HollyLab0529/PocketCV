@@ -163,13 +163,26 @@ dialog.modal:not(:has(.modal-foot button)) .modal-foot{display:none}
 .fill-empty-row:not(.fill-conflict-row){box-shadow:inset 2px 0 0 color-mix(in srgb, #3a7d5c 45%, transparent)}
 .fill-conflict-row{box-shadow:inset 2px 0 0 color-mix(in srgb, #c2703d 55%, transparent)}
 .cov{font-weight:600}
+.cov-link{background:none;border:none;padding:0;font:inherit;cursor:pointer;text-decoration:underline dotted transparent}
+.cov-link:hover{text-decoration-color:currentColor}
 .cov-fill{color:#3a7d5c}
 .cov-conflict{color:#c2703d}
+.cov-date{color:#3b6ea5}
 .cov-manual{color:var(--muted)}
 .cov-same{color:var(--muted);font-weight:400}
+/* 行内标签：明确区分「资料字段」与「网站输入框」 */
+.tag{display:inline-block;padding:1px 5px;margin-right:5px;border-radius:4px;font-size:10px;font-weight:500;vertical-align:1px}
+.tag-src{background:color-mix(in srgb, #3a7d5c 16%, transparent);color:#3a7d5c}
+.tag-site{background:color-mix(in srgb, #3b6ea5 14%, transparent);color:#3b6ea5}
+.fill-empty-ctx{color:var(--muted);font-size:11px}
+/* 日期分框分区：蓝色系 */
+.fill-section-title.t-date::before{background:#3b6ea5}
+.fill-date-row{box-shadow:inset 2px 0 0 color-mix(in srgb, #3b6ea5 50%, transparent)}
+/* 未识别空框：可点击定位的小按钮流式排列 */
+.fill-unknown-list{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 0}
+.unknown-item{font-size:11.5px;padding:3px 8px}
 .fill-conflict-row .fill-diff-old{font-size:11.5px;color:var(--muted);text-decoration:line-through;word-break:break-all}
 .fill-conflict-row .fill-diff-new{font-size:11.5px;color:var(--ink);font-weight:500;word-break:break-all}
-.fill-unknown-list{margin:2px 0 0;font-size:11.5px;color:var(--muted);line-height:1.7;word-break:break-all}
 .fill-warn{margin:8px 0 0;padding:8px 10px;border-radius:var(--radius);background:color-mix(in srgb, #d97706 12%, transparent);color:#b45309;font-size:12px;line-height:1.6}
 .modal:has(.menu-list){width:calc(100vw - 48px);max-width:340px}
 .modal-body.menu-list{display:flex;flex-direction:column;gap:5px;padding-top:10px}

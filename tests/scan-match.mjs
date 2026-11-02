@@ -1,5 +1,5 @@
 // scan-match.js 匹配器测试（Node 直跑）：同名框按出现次序消耗、picker 跳过、同义词
-import { matchBoxes, norm, sameValue } from '../src/ui/scan-match.js';
+import { matchBoxes, matchDateComponents, parseDateRange, norm, sameValue } from '../src/ui/scan-match.js';
 
 let pass = 0, fail = 0;
 const check = (name, cond, detail) => {
@@ -76,7 +76,59 @@ const profile = {
   check('身份证命中同义词', ms.some((m) => m.field.label === '证件号码'));
 }
 
-// 5. 基础工具函数
+// 6. 泛义词头黑名单扩充：只共享「工作」词根的两个不同维度字段不互猜
+{
+  console.log('[误匹配修复]');
+  const ms = matchBoxes([box('工作地点')], {
+    modules: [{ id: 'm', name: 'x', tier: '常用', entries: [{ id: 'e', title: 't', fields: [field('w1', '工作描述', '负责…')] }] }],
+  });
+  check('工作描述不会错配到工作地点', ms.length === 0, JSON.stringify(ms));
+}
+
+// 7. 日期分框：年/月 拆分框按锚点记录对应开始/结束
+{
+  console.log('[日期分框]');
+  const profile = {
+    modules: [{
+      id: 'm', name: '实习', tier: '常用',
+      entries: [{ id: 'e1', title: '实习一', fields: [field('j1', '单位名称', '美团'), field('j2', '起止时间', '2023.06 – 2024.03')] }],
+    }],
+  };
+  const boxes = [box('单位名称'), box('年'), box('月'), box('年'), box('月')];
+  const ms = matchBoxes(boxes, profile);
+  const dates = matchDateComponents(boxes, ms, profile);
+  check('4 个日期框全部给出建议', dates.length === 4, JSON.stringify(dates));
+  check('第 1 个年框 = 2023、第 2 个 = 2024', dates[0].value === '2023' && dates[2].value === '2024', JSON.stringify(dates.map((d) => d.value)));
+  check('月份保留原格式 06 / 03', dates[1].value === '06' && dates[3].value === '03', JSON.stringify(dates.map((d) => d.value)));
+  check('hint 标明 开始/结束', dates[0].hint.includes('开始') && dates[2].hint.includes('结束'));
+}
+
+// 8. 「年月」整体框 + 出生上下文排除
+{
+  console.log('[年月整体框与排除]');
+  const profile = {
+    modules: [{
+      id: 'm', name: '教育', tier: '常用',
+      entries: [{ id: 'e1', title: '教育一', fields: [field('s1', '学校', '天津师范大学'), field('s2', '起止时间', '2023年9月 至 2027年6月')] }],
+    }],
+  };
+  const boxes = [box('学校'), box('年月'), box('年月'), box('出生年月｜年'), box('出生年月｜月')];
+  const ms = matchBoxes(boxes, profile);
+  const dates = matchDateComponents(boxes, ms, profile);
+  check('年月整体框填原始写法', dates[0]?.value === '2023年9月' && dates[1]?.value === '2027年6月', JSON.stringify(dates));
+  check('出生相关框不参与', dates.length === 2, JSON.stringify(dates.map((d) => d.box.label)));
+}
+
+// 9. parseDateRange 多格式
+{
+  console.log('[日期解析]');
+  check('点分格式', (() => { const s = parseDateRange('2023.06 – 2024.03'); return s[0].year === '2023' && s[0].month === '06' && s[1].year === '2024'; })());
+  check('中文格式', (() => { const s = parseDateRange('2023年9月 至 2027年6月'); return s[0].month === '9' && s[1].month === '6'; })());
+  check('斜杠格式', (() => { const s = parseDateRange('2023/06~2024/03'); return s[0].year === '2023' && s[1].month === '03'; })());
+  check('单边时间', (() => { const s = parseDateRange('2024.11'); return s.length === 1 && s[0].year === '2024'; })());
+}
+
+// 10. 基础工具函数
 check('norm 去空白与标点', norm('请 输入：手机号*') === '请输入手机号');
 check('sameValue 空值视为一致', sameValue('', 'x') === true && sameValue('a', 'a') === true && sameValue('a', 'b') === false);
 

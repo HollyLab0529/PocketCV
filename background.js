@@ -165,6 +165,12 @@ chrome.runtime.onMessage.addListener((request, sender, respond) => {
         if (!scanned.length) throw new Error('本页没有扫描到可处理的输入框。');
         return scanned;
       }
+      case 'GOTO_BOX': {
+        // 面板点击未识别空框：跳到对应 frame 在网页上高亮定位
+        const tab = await activeTab();
+        const frameId = Number.isInteger(request.frameId) ? request.frameId : 0;
+        return await chrome.tabs.sendMessage(tab.id, { type: 'GOTO_BOX', index: request.index }, { frameId });
+      }
       case 'BATCH_FILL': {
         const tab = await activeTab();
         const items = Array.isArray(request.items) ? request.items : [];
