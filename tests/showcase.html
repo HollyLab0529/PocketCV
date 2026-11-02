@@ -1,0 +1,52 @@
+<!doctype html>
+<!-- PocketCV 演示截图专用页（非产品文件）：左=模拟网申页面，右=插件侧栏 iframe -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>口袋简历 PocketCV</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; font: 14px/1.6 system-ui, -apple-system, "PingFang SC", sans-serif; color: #222; background: #f3f5f7; }
+  .app { display: flex; height: 100vh; overflow: hidden; }
+  /* 左：模拟招聘页面 */
+  .site { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fff; }
+  .site::before { content: ""; display: block; height: 46px; background: #22506e; }
+  .site-body { flex: 1; overflow: auto; padding: 26px 36px; }
+  .site-body h1 { font-size: 20px; margin-bottom: 4px; }
+  .site-body .sub { color: #8a94a0; font-size: 12.5px; margin-bottom: 22px; }
+  .site-body h2 { font-size: 13px; color: #22506e; margin: 20px 0 10px; padding-left: 8px; border-left: 3px solid #22506e; }
+  .srow { display: flex; align-items: center; gap: 12px; margin: 9px 0; }
+  .srow label { width: 92px; text-align: right; color: #556; font-size: 13px; }
+  .srow input, .srow select, .srow textarea { flex: 1; max-width: 420px; padding: 8px 10px; border: 1px solid #d7dce2; border-radius: 7px; font: inherit; background: #fff; }
+  .srow input:focus, .srow select:focus, .srow textarea:focus { outline: 2px solid #7fa8c9; border-color: transparent; }
+  .field-changed { background: #f2f8ee !important; border-color: #9cc48a !important; }
+  .btnrow { margin: 22px 0 0; display: flex; gap: 12px; }
+  .btnrow button { padding: 9px 26px; border-radius: 7px; border: none; font: inherit; cursor: default; }
+  .btn-primary { background: #22506e; color: #fff; }
+  .btn-ghost { background: #e8ecf0; color: #556; }
+  /* 右：插件侧栏 */
+  .side { width: 400px; flex-shrink: 0; border-left: 1px solid #d5dae0; background: #fff; }
+  .side iframe { width: 100%; height: 100%; border: none; display: block; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="site">
+    <div class="site-body">
+      <h1>应聘登记表 · 前端开发工程师</h1>
+      <div class="sub">dream-tech.example.com &nbsp;·&nbsp; 应聘进度：资料完善中</div>
+      <h2>基础信息</h2>
+      <div class="srow"><label>姓名</label><input value="测试用户" class="field-changed" readonly></div>
+      <div class="srow"><label>手机号码</label><input class="phone" placeholder="请输入手机号"></div>
+      <div class="srow"><label>电子邮箱</label><input value="xu@example.com"></div>
+      <div class="srow"><label>毕业院校</label><input class="school" placeholder="请输入学校名称"></div>
+      <h2>求职意向</h2>
+      <div class="srow"><label>最高学历</label><input value="专科" class="degree field-changed" readonly></div>
+      <div class="srow"><label>到岗时间</label><input placeholder="如：一周内"></div>
+      <div class="btnrow"><button class="btn-primary">保存并下一步</button><button class="btn-ghost">暂存草稿</button></div>
+    </div>
+  </div>
+  <div class="side"><iframe id="panel" src="/panel.html?debug=fill&shot=1"></iframe></div>
+</div>
+</body>
+</html>

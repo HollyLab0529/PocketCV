@@ -2,7 +2,9 @@
 
 把求职资料装进浏览器侧栏：本地管理个人信息、教育、实习与项目经历，在招聘网页上逐项精准填入。零依赖、零上报，数据只存在你自己的浏览器里。
 
-![License](https://img.shields.io/badge/license-MIT-green) ![Chrome](https://img.shields.io/badge/Chrome-116%2B-4285F4)
+![口袋简历：左侧网申页面，右侧插件侧栏逐项填写](docs/screenshot-fill.png)
+
+![License](https://img.shields.io/badge/license-MIT-green) ![Chrome](https://img.shields.io/badge/Chrome-116%2B-4285F4) ![Local-first](https://img.shields.io/badge/data-local--first-3f7d4e)
 
 ## 功能
 
