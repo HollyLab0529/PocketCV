@@ -59,6 +59,8 @@
     if (document.activeElement?.tagName === 'IFRAME') { current = null; report(); }
   }), true);
   if (editable(rootEditable(activeEl()))) pick(activeEl());
+  // 向后台上报本 frame 已注入，供整页扫描时逐 frame 寻址（iframe 内的表单也能扫到）
+  try { chrome.runtime.sendMessage({ type: 'FRAME_ANNOUNCE' }).catch(() => {}); } catch { /* 扩展已重载等场景 */ }
 
   const nativeValue = (el) => (el.isContentEditable ? el.innerText : el.value);
   const assignValue = (el, value) => {
@@ -157,7 +159,7 @@
       if (el instanceof HTMLSelectElement) return el.options.length > 1;   // 只有一个 option 的 select 通常是占位
       return true;
     });
-    return scanList.slice(0, 60).map((el, index) => {
+    return scanList.slice(0, 120).map((el, index) => {
       let value = '';
       if (el instanceof HTMLSelectElement) {
         const opt = el.options[el.selectedIndex < 0 ? 0 : el.selectedIndex];
@@ -165,9 +167,13 @@
       } else {
         value = nativeValue(el).trim();
       }
+      // 自定义下拉（点击弹出选项面板的仿输入框）：写入文本只是改了显示，网站不会记录，自动填是假成功
+      const picker = el instanceof HTMLInputElement
+        && /^(请)?(点击|点此)?选择/.test(el.getAttribute('placeholder') || '');
       return {
         index,
         value,
+        picker,
         label: nearbyText(el) ? nearbyText(el) + '｜' + labelOf(el) : labelOf(el),
         kind: el.tagName.toLowerCase(),
         inputType: el.type || 'text',

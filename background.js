@@ -22,6 +22,7 @@ const trusted = (sender) => {
 
 const targets = new Map(); // tabId -> { tabId, frameId, documentId, token, label, kind, inputType, origin }
 const undos = new Map();   // tabId -> { documentId }
+const frames = new Map();  // tabId -> Set<frameId>（已注入桥接脚本的 frame，用于整页扫描）
 const publish = () => chrome.runtime.sendMessage({ type: 'TARGET_UPDATED' }).catch(() => {});
 
 async function activeTab() {
@@ -49,14 +50,22 @@ chrome.action.onClicked.addListener((tab) => {
 });
 
 chrome.runtime.onInstalled.addListener(() => { storageReady.catch(() => {}); });
-chrome.tabs.onRemoved.addListener((id) => { targets.delete(id); undos.delete(id); publish(); });
-chrome.tabs.onUpdated.addListener((id, info) => { if (info.status === 'loading') { targets.delete(id); undos.delete(id); publish(); } });
+chrome.tabs.onRemoved.addListener((id) => { targets.delete(id); undos.delete(id); frames.delete(id); publish(); });
+chrome.tabs.onUpdated.addListener((id, info) => { if (info.status === 'loading') { targets.delete(id); undos.delete(id); frames.delete(id); publish(); } });
 chrome.tabs.onActivated.addListener(() => publish());
 
 chrome.runtime.onMessage.addListener((request, sender, respond) => {
   if (!request || typeof request.type !== 'string') return false;
 
   // 来自网页桥接脚本：更新「当前填写目标」
+  if (request.type === 'FRAME_ANNOUNCE') {
+    if (sender.id !== chrome.runtime.id || !sender.tab?.id || !/^https?:\/\//.test(sender.url || '')) return false;
+    if (!frames.has(sender.tab.id)) frames.set(sender.tab.id, new Set());
+    frames.get(sender.tab.id).add(sender.frameId || 0);
+    respond({ ok: true });
+    return false;
+  }
+
   if (request.type === 'FOCUS') {
     if (sender.id !== chrome.runtime.id || !sender.tab?.id || !sender.documentId || !/^https?:\/\//.test(sender.url || '')) return false;
     const id = sender.tab.id;
@@ -141,19 +150,17 @@ chrome.runtime.onMessage.addListener((request, sender, respond) => {
         const tab = await activeTab();
         await connect(tab.id);   // 确保主文档与各 frame 已注入
         const scanned = [];
-        const seen = new Set();
-        for (const frameId of [0]) {
+        // 同名输入框是不同字段（如多段实习经历的「公司名称」），不得去重；
+        // 每个 frame 的索引相互独立，填写时按 (frameId, index) 寻址。
+        const frameIds = frames.get(tab.id) || new Set([0]);
+        frameIds.add(0);   // 主文档始终参与
+        for (const frameId of [...frameIds].sort((a, b) => a - b)) {
           try {
             const result = await chrome.tabs.sendMessage(tab.id, { type: 'SCAN_PAGE' }, { frameId });
             if (result?.ok && Array.isArray(result.data)) {
-              for (const box of result.data) {
-                const key = box.label + '|' + box.kind;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                scanned.push({ ...box, frameId });
-              }
+              for (const box of result.data) scanned.push({ ...box, frameId });
             }
-          } catch { /* 该 frame 无表单，跳过 */ }
+          } catch { /* 该 frame 无表单或已跳转，跳过 */ }
         }
         if (!scanned.length) throw new Error('本页没有扫描到可处理的输入框。');
         return scanned;

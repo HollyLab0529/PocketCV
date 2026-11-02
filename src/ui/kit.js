@@ -35,6 +35,7 @@ const ICON_PATHS = {
   scan: 'M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M3 12h18',
   type: 'M4 7V4h16v3M9 20h6M12 4v16',
   chevdown: 'm6 9 6 6 6-6',
+  check: 'm5 13 4 4L19 7',
 };
 export function icon(name, size = 15) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');

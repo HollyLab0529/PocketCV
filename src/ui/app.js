@@ -39,6 +39,8 @@ let prefs = (() => {
 const savePrefs = () => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* 仅本次会话生效 */ } };
 let target = null;             // 当前网页填写目标 { tabId, token, label, kind, inputType, origin }
 let undoAvailable = false;     // 当前网页是否有可撤回的填写
+let filledCount = 0;           // 本轮会话在网页上已写入的项数（横幅展示用）
+let bannerHintDismissed = false; // 收起「先点选输入框」提示（本次会话内不再展开）
 let bannerNode = null;
 const sessionTrusted = new Set(); // 本次会话内已确认过的网站 origin
 
@@ -283,15 +285,38 @@ function renderBanner() {
       h('span', { class: 'spacer' }),
       button('撤销填写', undoFill, { kind: 'quiet', symbol: 'undo', disabled: !undoAvailable }),
       button('重新连接', connectPage, { kind: 'quiet', symbol: 'target' }));
-  } else {
+    return;
+  }
+  // 有写入记录：不再重复「先点选输入框」提示，突出可撤回
+  if (undoAvailable) {
+    bannerNode.append(
+      icon('check', 15),
+      h('span', { class: 'banner-text' },
+        h('span', { class: 'banner-label', text: '已写入本页' }),
+        h('span', { class: 'banner-hint', text: filledCount ? `本轮已填入 ${filledCount} 项，请在网页核对。` : '本页有已写入的内容。', title: '在网页上核对内容；确认无误后手动提交。' })),
+      h('span', { class: 'spacer' }),
+      button('撤销填写', undoFill, { kind: 'quiet', symbol: 'undo' }),
+      button('连接当前网页', connectPage, { kind: 'quiet', symbol: 'target' }));
+    return;
+  }
+  // 从未写入：展示一次操作提示，可收起；收起后只留连接按钮
+  if (!bannerHintDismissed) {
     bannerNode.append(
       icon('target', 15),
       h('span', { class: 'banner-text' },
         h('span', { class: 'banner-label', text: '未连接网页' }),
-        h('span', { class: 'banner-hint', text: '先在招聘网页点一下要填的输入框，再回来点「填入」。', title: '先在招聘网页点一下要填的输入框，再回来点「填入」。' })),
+        h('span', { class: 'banner-hint', text: '点「一键核对」自动补齐本页；也可以先在网页点选输入框，再点字段行填入。', title: '点「一键核对」自动补齐本页；也可以先在网页点选输入框，再点字段行填入。' })),
       h('span', { class: 'spacer' }),
+      button('', () => { bannerHintDismissed = true; renderBanner(); }, { kind: 'quiet icon-only', symbol: 'close', title: '收起提示（本次会话不再显示）' }),
       button('连接当前网页', connectPage, { kind: 'primary', symbol: 'target' }));
+    return;
   }
+  bannerNode.append(
+    icon('target', 15),
+    h('span', { class: 'banner-text' },
+      h('span', { class: 'banner-label', text: '未连接网页' })),
+    h('span', { class: 'spacer' }),
+    button('连接当前网页', connectPage, { kind: 'primary', symbol: 'target' }));
 }
 
 async function sensitiveConsent(field) {
@@ -327,13 +352,30 @@ async function fillEmpties() {
   const fills = matches.filter((m) => !m.box.value);
   const conflicts = matches.filter((m) => !!m.box.value && !sameValue(m.box.value, m.field.value));
   const unknown = boxes.filter((b) => !matchedBox.has(b) && !b.value);
+  const sameCount = matches.length - fills.length - conflicts.length;
+  const coverage = `本页共 ${boxes.length} 个输入框：可补齐 ${fills.length} · 可纠错 ${conflicts.length} · 需手动 ${unknown.length}`
+    + (sameCount ? ` · 已一致 ${sameCount}` : '');
+  // 多个空框无法自动填时，明确提醒用户（日期分框、自定义下拉、资料里没有的项），避免误以为已填完
+  const manualWarn = () => h('p', { class: 'fill-warn', text: `⚠️ 本页有 ${unknown.length} 个输入框无法自动填（日期分框、下拉选择、或资料里没有对应项），提交前请逐个手动检查。` });
   if (!fills.length && !conflicts.length) {
-    const extra = unknown.length ? `，另有 ${unknown.length} 个空框没能识别字段，可逐个点填。` : '。';
-    toast(`本页能对上资料的字段${unknown.length ? '已全部' : '都'}一致或没有匹配项${extra}`, true);
+    if (unknown.length >= 3) {
+      await modal('本页核对结果', ({ body, foot, finish }) => {
+        body.append(h('p', { class: 'modal-description', text: coverage }));
+        body.append(manualWarn());
+        body.append(h('h4', { class: 'fill-section-title', text: `无法自动填写的输入框（${unknown.length} 个）` }));
+        body.append(h('p', { class: 'fill-unknown-list', text: unknown.map((b) => b.label.split('｜')[0].slice(0, 18)).join('、').slice(0, 300) }));
+        foot.append(h('span', { class: 'spacer' }),
+          button('知道了，手动填写', () => finish(null), { kind: 'primary' }));
+      });
+    } else {
+      toast(coverage + (unknown.length ? `。未识别的 ${unknown.length} 个空框可逐个点填。` : '。'), true);
+    }
     return;
   }
   const shorten = (s) => { const t = String(s || '').replace(/\s+/g, ' '); return t.slice(0, 30) + (t.length > 30 ? '…' : ''); };
   const picks = await modal('核对本页表单', ({ body, foot, finish }) => {
+    body.append(h('p', { class: 'modal-description', text: coverage }));
+    if (unknown.length >= 3) body.append(manualWarn());
     if (fills.length) body.append(h('h4', { class: 'fill-section-title', text: `待补齐（${fills.length} 项，勾选后填入）` }));
     const rows = [];
     for (const m of fills) {
@@ -379,12 +421,13 @@ async function fillEmpties() {
       items: picks.map((m) => ({ frameId: m.box.frameId, index: m.box.index, value: m.field.value })),
     });
     const okCount = result.filled, failCount = result.failed;
-    if (okCount) { undoAvailable = true; renderBanner(); }
+    if (okCount) { undoAvailable = true; filledCount += okCount; renderBanner(); }
     const fails = result.results.filter((r) => !r.ok);
+    const manualNote = unknown.length ? `；另有 ${unknown.length} 个输入框无法自动填，提交前请手动检查` : '';
     if (failCount) {
-      toast(`写入完成：成功 ${okCount} 项，${failCount} 项失败（${fails[0]?.error || '详见网页'}）。`, true);
+      toast(`写入完成：成功 ${okCount} 项，${failCount} 项失败（${fails[0]?.error || '详见网页'}）${manualNote}。`, true);
     } else {
-      toast(`已更新 ${okCount} 项，请在网页核对；点「撤销填写」可整体撤回。`);
+      toast(`已更新 ${okCount} 项${manualNote}；点「撤销填写」可整体撤回。`);
     }
   } catch (error) {
     toast(errorMessage(error), true);
@@ -401,6 +444,7 @@ async function fillField(field) {
   try {
     const result = await message('FILL', { tabId: target.tabId, token: target.token, value: field.value });
     undoAvailable = true;
+    filledCount += 1;
     renderBanner();
     toast(`已填入「${field.label}」（${result?.characters ?? field.value.length} 字符），请在网页核对。`);
   } catch (error) {

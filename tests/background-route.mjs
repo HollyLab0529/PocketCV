@@ -1,5 +1,5 @@
 // background.js 表单核对路由 mock 测试（Node 直跑，不需要浏览器）
-// 验证 SCAN_PAGE 去重附 frameId、BATCH_FILL 按 frameId 分组、UNDO_FILL 批量撤回分支
+// 验证 SCAN_PAGE 保留同名框（多段经历不去重）附 frameId、frame 注册、BATCH_FILL 按 frameId 分组、UNDO_FILL 批量撤回分支
 const EXT_ID = 'ext-test-id';
 const TAB_ID = 7;
 
@@ -9,13 +9,13 @@ const publishes = [];
 
 const scriptingCalls = [];
 
-// 模拟两个 frame 的 content 脚本：frame 0 有数框（其中 1 个重复 label 用于验证去重）
+// 模拟两个 frame 的 content 脚本：frame 0 有数框（其中 2 个同名框——多段经历的同名字段，不得去重）
 const contentFrames = {
   0: {
     scan: [
       { index: 0, value: '', label: '姓名｜姓名', kind: 'input', inputType: 'text' },
       { index: 1, value: '旧值', label: '手机号码｜手机', kind: 'input', inputType: 'tel' },
-      { index: 0, value: '', label: '姓名｜姓名', kind: 'input', inputType: 'text' }, // 重复，应被去重
+      { index: 2, value: '', label: '姓名｜姓名', kind: 'input', inputType: 'text' }, // 第二段经历的「姓名」，同名不同字段
     ],
     fill(items) {
       return {
@@ -83,20 +83,29 @@ const send = (request) => new Promise((resolve) => {
   if (async !== true) return; // 同步已 respond
 });
 
+const sendFromContent = (request, frameId) => new Promise((resolve) => {
+  listener(request, { id: EXT_ID, tab: { id: TAB_ID }, frameId, url: 'https://job.example.com/apply', documentId: `doc-${frameId}` }, resolve);
+});
+
 let pass = 0, fail = 0;
 const check = (name, cond, detail) => {
   if (cond) { pass++; console.log(`  ✓ ${name}`); }
   else { fail++; console.log(`  ✗ ${name} ${detail ?? ''}`); }
 };
 
-// 1. SCAN_PAGE：去重、附 frameId、携带已填值
+// 1. SCAN_PAGE：同名框不去重、附 frameId、携带已填值；frame 注册后跨 frame 汇总
 {
   console.log('[SCAN_PAGE]');
-  const res = await send({ type: 'SCAN_PAGE' });
-  check('成功，去重后 2 项', res.ok === true && res.data.length === 2, JSON.stringify(res));
+  let res = await send({ type: 'SCAN_PAGE' });
+  check('成功，未注册 frame 时只扫主文档 3 项', res.ok === true && res.data.length === 3, JSON.stringify(res));
+  check('同名框保留（多段经历不去重）', res.data.filter((b) => b.label.startsWith('姓名')).length === 2);
   check('附 frameId=0', res.data[0].frameId === 0);
   check('携带已填值（手机号码=旧值）', res.data[1].value === '旧值', JSON.stringify(res.data[1]));
   check('connect 确保注入', scriptingCalls.length >= 1, 'executeScript 未被调用');
+  await sendFromContent({ type: 'FRAME_ANNOUNCE' }, 1);
+  res = await send({ type: 'SCAN_PAGE' });
+  check('frame 注册后跨 frame 汇总 4 项', res.ok === true && res.data.length === 4, JSON.stringify(res));
+  check('frame1 的框附 frameId=1', res.data[3].frameId === 1);
 }
 
 // 2. BATCH_FILL：跨 frame 分组、混合成败汇总

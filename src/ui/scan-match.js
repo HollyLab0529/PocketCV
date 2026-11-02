@@ -72,37 +72,48 @@ export const sameValue = (a, b) => {
 const labelParts = (label) => String(label || '').split(/[｜|]/).flatMap((part) => part.split(/[\s/·]+/)).map(norm).filter(Boolean);
 
 export function matchBoxes(boxes, profile) {
-  const pool = [];
+  // 同名字段按资料顺序建组：多段经历的「公司名称」等同名框按出现次序逐个消耗，
+  // 避免把第一段经历的公司写进所有段。
+  const fieldsByLabel = new Map();   // normLabel -> { label, fields: [...] }
   for (const m of profile.modules) {
     for (const e of m.entries) {
       for (const f of e.fields) {
-        if (typeof f.value === 'string' && f.value.trim()) pool.push(f);
+        if (typeof f.value !== 'string' || !f.value.trim()) continue;
+        const nl = norm(f.label);
+        if (!fieldsByLabel.has(nl)) fieldsByLabel.set(nl, { label: f.label, fields: [] });
+        fieldsByLabel.get(nl).fields.push(f);
       }
     }
   }
   const used = new Set();   // 高置信命中只允许一个框占用一个字段，避免多框抢同值
   const matches = [];
   for (const box of boxes) {
+    if (box.picker) continue;   // 自定义下拉写入是假成功，留给用户手动选
     const parts = labelParts(box.label);
     let best = null;
-    for (const f of pool) {
-      const fl = norm(f.label);
+    for (const [nl, group] of fieldsByLabel) {
+      const fl = nl;
       let score = 0;
       for (const part of parts) {
         if (!part) continue;
         if (part === fl) { score = Math.max(score, 3); break; }
-        const syn = SYNONYMS[f.label] || [];
+        const syn = SYNONYMS[group.label] || [];
         if (syn.some((s) => norm(s) === part)) { score = Math.max(score, 2.5); break; }
         if ((part.length >= 2 && fl.length >= 2) && (part.includes(fl) || fl.includes(part))) score = Math.max(score, 1.5);
       }
-      if (score && (!best || score > best.score)) best = { field: f, score };
+      if (score && (!best || score > best.score)) best = { group, score };
     }
     if (best && best.score >= 1.5) {
-      const key = best.field.id;
       const exclusive = best.score >= 2.5;
-      if (exclusive && used.has(key)) continue;
-      if (exclusive) used.add(key);
-      matches.push({ box, field: best.field, confidence: best.score >= 2.5 ? 'high' : 'medium' });
+      let field = null;
+      if (exclusive) {
+        // 同名字段按出现次序消耗：第 N 个同名框 → 第 N 条记录的同名字段；用完后不再匹配
+        field = best.group.fields.find((f) => !used.has(f.id)) || null;
+        if (field) used.add(field.id);
+      } else {
+        field = best.group.fields[0];
+      }
+      if (field) matches.push({ box, field, confidence: best.score >= 2.5 ? 'high' : 'medium' });
     }
   }
   return matches.sort((a, b) => (a.confidence === b.confidence ? 0 : a.confidence === 'high' ? -1 : 1));
