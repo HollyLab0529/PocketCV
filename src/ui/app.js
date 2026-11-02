@@ -355,14 +355,21 @@ async function fillEmpties() {
   const sameCount = matches.length - fills.length - conflicts.length;
   const coverage = `本页共 ${boxes.length} 个输入框：可补齐 ${fills.length} · 可纠错 ${conflicts.length} · 需手动 ${unknown.length}`
     + (sameCount ? ` · 已一致 ${sameCount}` : '');
+  // 彩色版覆盖汇总：绿=可补齐、橙=可纠错、灰=需手动，与下方分区颜色呼应
+  const coverageRich = () => h('p', { class: 'modal-description' },
+    `本页共 ${boxes.length} 个输入框：`,
+    h('b', { class: 'cov cov-fill', text: `可补齐 ${fills.length}` }), ' · ',
+    h('b', { class: 'cov cov-conflict', text: `可纠错 ${conflicts.length}` }), ' · ',
+    h('b', { class: 'cov cov-manual', text: `需手动 ${unknown.length}` }),
+    sameCount ? h('span', { class: 'cov cov-same', text: ` · 已一致 ${sameCount}` }) : null);
   // 多个空框无法自动填时，明确提醒用户（日期分框、自定义下拉、资料里没有的项），避免误以为已填完
   const manualWarn = () => h('p', { class: 'fill-warn', text: `⚠️ 本页有 ${unknown.length} 个输入框无法自动填（日期分框、下拉选择、或资料里没有对应项），提交前请逐个手动检查。` });
   if (!fills.length && !conflicts.length) {
     if (unknown.length >= 3) {
       await modal('本页核对结果', ({ body, foot, finish }) => {
-        body.append(h('p', { class: 'modal-description', text: coverage }));
+        body.append(coverageRich());
         body.append(manualWarn());
-        body.append(h('h4', { class: 'fill-section-title', text: `无法自动填写的输入框（${unknown.length} 个）` }));
+        body.append(h('h4', { class: 'fill-section-title t-unknown', text: `无法自动填写的输入框（${unknown.length} 个）` }));
         body.append(h('p', { class: 'fill-unknown-list', text: unknown.map((b) => b.label.split('｜')[0].slice(0, 18)).join('、').slice(0, 300) }));
         foot.append(h('span', { class: 'spacer' }),
           button('知道了，手动填写', () => finish(null), { kind: 'primary' }));
@@ -374,9 +381,9 @@ async function fillEmpties() {
   }
   const shorten = (s) => { const t = String(s || '').replace(/\s+/g, ' '); return t.slice(0, 30) + (t.length > 30 ? '…' : ''); };
   const picks = await modal('核对本页表单', ({ body, foot, finish }) => {
-    body.append(h('p', { class: 'modal-description', text: coverage }));
+    body.append(coverageRich());
     if (unknown.length >= 3) body.append(manualWarn());
-    if (fills.length) body.append(h('h4', { class: 'fill-section-title', text: `待补齐（${fills.length} 项，勾选后填入）` }));
+    if (fills.length) body.append(h('h4', { class: 'fill-section-title t-fill', text: `待补齐（${fills.length} 项，勾选后填入）` }));
     const rows = [];
     for (const m of fills) {
       const cb = h('input', { type: 'checkbox', checked: m.field.sensitive ? undefined : true });
@@ -390,7 +397,7 @@ async function fillEmpties() {
       rows.push({ cb, m });
     }
     if (conflicts.length) {
-      body.append(h('h4', { class: 'fill-section-title', text: `网站已填内容与资料不一致（${conflicts.length} 项，默认保留网站内容；勾选改为资料值）` }));
+      body.append(h('h4', { class: 'fill-section-title t-conflict', text: `网站已填内容与资料不一致（${conflicts.length} 项，默认保留网站内容；勾选改为资料值）` }));
       for (const m of conflicts) {
         const cb = h('input', { type: 'checkbox' });
         const row = h('label', { class: 'check-row fill-empty-row fill-conflict-row' },
@@ -404,7 +411,7 @@ async function fillEmpties() {
       }
     }
     if (unknown.length) {
-      body.append(h('h4', { class: 'fill-section-title', text: `未识别的空框（${unknown.length} 个仅提示，不自动填）` }));
+      body.append(h('h4', { class: 'fill-section-title t-unknown', text: `未识别的空框（${unknown.length} 个仅提示，不自动填）` }));
       body.append(h('p', { class: 'fill-unknown-list', text: unknown.map((b) => b.label.split('｜')[0].slice(0, 18)).join('、').slice(0, 200) }));
     }
     if (rows.some((x) => x.m.field.sensitive)) {

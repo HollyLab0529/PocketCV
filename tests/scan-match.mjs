@@ -47,7 +47,26 @@ const profile = {
   check('picker 框不参与自动匹配', ms.length === 1 && ms[0].box.label === '学历', JSON.stringify(ms));
 }
 
-// 4. 同义词与置信度不变
+// 4. 名称不一致但共享词根：获奖经历 ↔ 获奖说明 / 获奖清单 ↔ 奖项名称
+{
+  console.log('[词根宽容匹配]');
+  const p = { modules: [{ id: 'm', name: 'x', tier: '扩展', entries: [{ id: 'e', title: 't', fields: [field('a1', '获奖说明', '省级一等奖'), field('a2', '奖项名称', '数学竞赛')] }] }] };
+  const ms = matchBoxes([box('获奖经历'), box('获奖清单')], p);
+  check('两个框都能对上获奖类字段', ms.length === 2, JSON.stringify(ms.map((m) => m.field.label)));
+  const labels = ms.map((m) => m.field.label).sort().join(',');
+  check('获奖经历→奖项名称，获奖清单被占用后降级→获奖说明', labels === '奖项名称,获奖说明', labels);
+}
+
+// 5. 泛义词头不宽容：只有「期望」词根相同时不互相猜
+{
+  console.log('[泛义词头不宽容]');
+  const ms = matchBoxes([box('期望城市')], {
+    modules: [{ id: 'm', name: 'x', tier: '常用', entries: [{ id: 'e', title: 't', fields: [field('x1', '期望薪资', '20k')] }] }],
+  });
+  check('期望城市不会错配到期望薪资', ms.length === 0, JSON.stringify(ms));
+}
+
+// 6. 同义词与置信度不变
 {
   console.log('[同义词]');
   const ms = matchBoxes([box('请输入手机号'), box('身份证号码')], {

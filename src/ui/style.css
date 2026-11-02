@@ -154,6 +154,19 @@ dialog.modal:not(:has(.modal-foot button)) .modal-foot{display:none}
 .fill-empty-target{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fill-empty-value{font-size:12px;color:var(--text);max-width:45%;text-align:right;word-break:break-all}
 .fill-section-title{margin:14px 0 6px;font-size:12.5px;font-weight:600;color:var(--muted)}
+/* 分区配色：绿=可补齐、橙=可纠错、灰=需手动，与行左色条、汇总数字呼应 */
+.fill-section-title::before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;background:var(--muted);vertical-align:1px}
+.fill-section-title.t-fill::before{background:#3a7d5c}
+.fill-section-title.t-conflict::before{background:#c2703d}
+.fill-section-title.t-unknown::before{background:#98a0a8}
+.fill-empty-row{border-left:2px solid transparent}
+.fill-empty-row:not(.fill-conflict-row){box-shadow:inset 2px 0 0 color-mix(in srgb, #3a7d5c 45%, transparent)}
+.fill-conflict-row{box-shadow:inset 2px 0 0 color-mix(in srgb, #c2703d 55%, transparent)}
+.cov{font-weight:600}
+.cov-fill{color:#3a7d5c}
+.cov-conflict{color:#c2703d}
+.cov-manual{color:var(--muted)}
+.cov-same{color:var(--muted);font-weight:400}
 .fill-conflict-row .fill-diff-old{font-size:11.5px;color:var(--muted);text-decoration:line-through;word-break:break-all}
 .fill-conflict-row .fill-diff-new{font-size:11.5px;color:var(--ink);font-weight:500;word-break:break-all}
 .fill-unknown-list{margin:2px 0 0;font-size:11.5px;color:var(--muted);line-height:1.7;word-break:break-all}

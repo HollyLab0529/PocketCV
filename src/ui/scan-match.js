@@ -30,7 +30,7 @@ const SYNONYMS = {
   '岗位': ['实习岗位', '职位', '职位名称', '担任职位', '工作岗位'],
   '所在城市': ['实习城市', '工作城市', '工作地点'],
   '起止时间': ['实习时间', '工作时间', '起止日期', '实习起止时间', '项目时间', '任职时间'],
-  '工作描述': ['实习描述', '工作内容', '工作职责', '职责描述', '实习内容'],
+  '工作描述': ['实习描述', '工作内容', '工作职责', '职责描述', '实习内容', '项目中职责', '项目职责'],
   '主要成果': ['实习成果', '工作成果', '主要业绩'],
   '担任角色': ['项目角色', '角色', '承担角色'],
   '项目链接': ['项目地址', '项目网址', 'demo 链接'],
@@ -43,7 +43,7 @@ const SYNONYMS = {
   '办公 / 设计工具': ['熟练工具', '常用工具', '软件技能'],
   '语言能力': ['外语能力', '语言水平'],
   '证书': ['资格证书', '证书名称', '持有哪些证书'],
-  '奖项名称': ['荣誉名称', '获奖名称', '获奖情况', '奖项'],
+  '奖项名称': ['荣誉名称', '获奖名称', '获奖情况', '奖项', '获奖经历', '获奖清单', '获奖记录', '荣誉经历', '奖项经历', '荣誉清单'],
   '奖项级别': ['获奖级别', '奖项等级', '获奖等级'],
   '获奖说明': ['备注', '获奖备注'],
   '期望岗位': ['期望职位', '应聘岗位', '意向岗位', '应聘职位', '求职意向', '意向职位'],
@@ -68,6 +68,22 @@ export const sameValue = (a, b) => {
   return !x || !y ? true : x === y;
 };
 
+// 最长公共子串：网站字段名与资料字段名不一致但共享词根时（如「获奖经历」↔「获奖说明」）也能对上
+const lcs = (a, b) => {
+  let best = '';
+  for (let i = 0; i < a.length; i++) {
+    for (let j = 0; j < b.length; j++) {
+      if (a[i] !== b[j]) continue;
+      let k = 1;
+      while (i + k < a.length && j + k < b.length && a[i + k] === b[j + k]) k++;
+      if (k > best.length) best = a.slice(i, i + k);
+    }
+  }
+  return best;
+};
+// 泛义修饰词头：只共享这类词头的两个字段多半是不同字段（如「期望城市」↔「期望薪资」），不宽容匹配
+const GENERIC_HEADS = new Set(['期望', '意向', '紧急', '其他', '主要', '最高', '首选', '相关', '基本']);
+
 // 把页面框的 label 拆成候选关键词：取「｜」前后两段分别参与匹配
 const labelParts = (label) => String(label || '').split(/[｜|]/).flatMap((part) => part.split(/[\s/·]+/)).map(norm).filter(Boolean);
 
@@ -90,7 +106,7 @@ export function matchBoxes(boxes, profile) {
   for (const box of boxes) {
     if (box.picker) continue;   // 自定义下拉写入是假成功，留给用户手动选
     const parts = labelParts(box.label);
-    let best = null;
+    const scored = [];
     for (const [nl, group] of fieldsByLabel) {
       const fl = nl;
       let score = 0;
@@ -100,20 +116,34 @@ export function matchBoxes(boxes, profile) {
         const syn = SYNONYMS[group.label] || [];
         if (syn.some((s) => norm(s) === part)) { score = Math.max(score, 2.5); break; }
         if ((part.length >= 2 && fl.length >= 2) && (part.includes(fl) || fl.includes(part))) score = Math.max(score, 1.5);
+        else if (part.length >= 3 && fl.length >= 3) {
+          // 宽容匹配：共享 ≥2 字词根且覆盖较短一方近半，视为同义（预览确认兜底，不怕猜错）
+          const common = lcs(part, fl);
+          if (common.length >= 2 && !GENERIC_HEADS.has(common) && common.length >= Math.min(part.length, fl.length) * 0.4) {
+            score = Math.max(score, 1.5);
+          }
+        }
       }
-      if (score && (!best || score > best.score)) best = { group, score };
+      if (score) scored.push({ group, score });
     }
-    if (best && best.score >= 1.5) {
-      const exclusive = best.score >= 2.5;
+    scored.sort((a, b) => b.score - a.score);
+    // 按置信度从高到低尝试：高置信字段被同名框占用时降级到次高候选（如「获奖清单」被「奖项名称」
+    // 占用后改对「获奖说明」），而不是整框落空
+    for (const cand of scored) {
+      if (cand.score < 1.5) break;
+      const exclusive = cand.score >= 2.5;
       let field = null;
       if (exclusive) {
-        // 同名字段按出现次序消耗：第 N 个同名框 → 第 N 条记录的同名字段；用完后不再匹配
-        field = best.group.fields.find((f) => !used.has(f.id)) || null;
+        // 同名字段按出现次序消耗：第 N 个同名框 → 第 N 条记录的同名字段；用完后降级
+        field = cand.group.fields.find((f) => !used.has(f.id)) || null;
         if (field) used.add(field.id);
       } else {
-        field = best.group.fields[0];
+        field = cand.group.fields[0];
       }
-      if (field) matches.push({ box, field, confidence: best.score >= 2.5 ? 'high' : 'medium' });
+      if (field) {
+        matches.push({ box, field, confidence: cand.score >= 2.5 ? 'high' : 'medium' });
+        break;
+      }
     }
   }
   return matches.sort((a, b) => (a.confidence === b.confidence ? 0 : a.confidence === 'high' ? -1 : 1));
