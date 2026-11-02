@@ -1,0 +1,95 @@
+<!doctype html>
+<!-- PocketCV xlsx 模块测试：导出→导入 roundtrip + 格式拒绝 -->
+<meta charset="utf-8">
+<title>PocketCV xlsx 测试</title>
+<body>
+<main>
+  <h3>1. 自动 Roundtrip 测试</h3>
+  <pre id="roundtrip">pending…</pre>
+</main>
+<script type="module">
+import { exportProfileWorkbook, importProfileWorkbook, WORKBOOK_FORMAT } from '../src/infra/xlsx.js';
+import { validateProfile, starterProfile, makeModule, makeEntry, makeField, stats, clone } from '../src/domain/model.js';
+
+const results = [];
+const findField = (p, mi, label) => p.modules[mi].entries[0].fields.find((f) => f.label === label);
+const t = (name, pass, detail = '') => results.push(`${pass ? 'PASS' : 'FAIL'} ${name}${detail ? ' :: ' + detail : ''}`);
+
+function buildSample() {
+  const p = starterProfile();
+  p.modules[0].tier = '常用';
+  p.modules[1].tier = '备用';
+  p.modules[2].tier = '扩展';
+  const e0 = p.modules[0].entries[0];
+  e0.fields[0].value = '测试用户';
+  e0.fields[1].value = '13800000000';
+  e0.fields[2].value = 'xu@example.com';
+  // 多行 + 特殊字符（XML 转义 & 引号 & 换行）
+  const desc = findField(p, 2, '主修课程');
+  desc.value = '第一行 <负责> "增长" & 转化\n第二行：数字 00123 保前导零';
+  // 备用分类下再加一段记录 + 敏感字段
+  const extra = makeEntry('示例大学 · 研究生', [
+    makeField('学校', '', 'text'),
+    makeField('证件号', '证件', 'text', true),
+  ]);
+  extra.fields[0].value = '示例大学';
+  extra.fields[1].value = '110101199001011234';
+  p.modules[1].entries.push(extra);
+  return validateProfile(p);
+}
+
+async function run() {
+  const before = buildSample();
+  const bytes = exportProfileWorkbook(before, { accent: '7d93a8', themeId: 'haze' });
+  t('导出产出字节', bytes instanceof Uint8Array && bytes.length > 2000, `bytes=${bytes.length}`);
+  const back = await importProfileWorkbook(bytes);
+  t('来源识别为 pocketcv', back.source === 'pocketcv');
+
+  const after = back.profile;
+  const sb = stats(before), sa = stats(after);
+  t('分类数一致', sb.modules === sa.modules, `${sb.modules} vs ${sa.modules}`);
+  t('记录数一致', sb.entries === sa.entries, `${sb.entries} vs ${sa.entries}`);
+  t('字段数一致', sb.fields === sb.fields && before.modules.every((m, i) => m.entries.length === after.modules[i].entries.length), `${sa.entries}`);
+
+  const pick = (p, mi, ei, fi) => p.modules[mi].entries[ei].fields[fi];
+  const afterDesc = findField(after, 2, '主修课程');
+  t('多行含特殊字符保留', afterDesc.value === findField(before, 2, '主修课程').value, JSON.stringify(afterDesc.value));
+  t('敏感标记保留', pick(after, 1, 1, 1).sensitive === true && pick(after, 1, 1, 1).value === '110101199001011234');
+  t('层级保留（备用）', after.modules[1].tier === '备用', after.modules[1].tier);
+  t('层级保留（扩展）', after.modules[2].tier === '扩展');
+  t('字段类型保留（multiline/email）', findField(after, 2, '主修课程').type === 'multiline' && findField(after, 1, '邮箱').type === 'email');
+  t('ID 原样保留', after.modules[0].id === before.modules[0].id && pick(after, 0, 0, 0).id === pick(before, 0, 0, 0).id);
+
+  // 重新导出再导入（二级 roundtrip，验证导入产物可再导出）
+  const bytes2 = exportProfileWorkbook(after, { accent: '7f9483' });
+  const back2 = await importProfileWorkbook(bytes2);
+  t('二级 roundtrip 稳定', JSON.stringify(stats(back2.profile)) === JSON.stringify(sa));
+
+  // 非法输入拒绝
+  let rejected = false;
+  try { await importProfileWorkbook(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])); }
+  catch { rejected = true; }
+  t('垃圾字节被拒绝', rejected);
+
+  // 外部格式（缺结构表）拒绝
+  let foreign = false;
+  try {
+    const { unpackZip, packZip } = await import('../src/infra/zip.js');
+    const files = await unpackZip(exportProfileWorkbook(before, {}));
+    files.delete('xl/worksheets/sheet' + (before.modules.length + 2) + '.xml'); // 删掉结构表
+    await importProfileWorkbook(packZip(Object.fromEntries(files)));
+  } catch { foreign = true; }
+  t('缺结构表的外部工作簿被拒绝', foreign);
+
+  const failed = results.filter((r) => r.startsWith('FAIL'));
+  document.getElementById('roundtrip').textContent =
+    `${failed.length ? `❌ ${failed.length} 项失败` : '✅ 全部通过'}（共 ${results.length} 项）\n` + results.join('\n');
+  document.title = failed.length ? `FAIL ${failed.length}/${results.length}` : `PASS ${results.length}`;
+}
+
+run().catch((e) => {
+  document.title = 'ERROR';
+  document.getElementById('roundtrip').textContent = 'ERROR: ' + ((e && e.stack) || e);
+});
+</script>
+</body>
