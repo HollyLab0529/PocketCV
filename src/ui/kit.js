@@ -1,7 +1,7 @@
 // 口袋简历 PocketCV · 通用 UI 工具（自有实现）
-export function h(tag, props = {}, ...children) {
+export function h(tag, props, ...children) {
   const node = document.createElement(tag);
-  for (const [key, value] of Object.entries(props)) {
+  for (const [key, value] of Object.entries(props || {})) {
     if (value === undefined || value === null) continue;
     if (key === 'text') node.textContent = String(value);
     else if (key === 'class') node.className = value;

@@ -332,6 +332,12 @@ async function sensitiveConsent(field) {
   return true;
 }
 
+// 一键核对入口（带兜底：内部出错时给出可见提示，而不是「点不动」）
+async function fillEmptiesSafe() {
+  try { await fillEmpties(); }
+  catch (e) { console.error('[PocketCV] 核对失败', e); toast(`核对失败：${e?.message || e}`, true); }
+}
+
 // 一键处理本页表单：扫描输入框 → 匹配资料字段 → 预览核对（补齐 + 纠错）→ 批量写入（可整体撤回）
 async function fillEmpties() {
   toast('正在扫描本页输入框…');
@@ -412,20 +418,30 @@ async function fillEmpties() {
     body.append(coverageRich());
     if (unknown.length >= 3) body.append(manualWarn());
     const rows = [];
+    // 值可直接点击修改（含日期）：填入以编辑后的为准；未编辑则用原值
+    const editableValue = (value, title) => {
+      const el = h('span', {
+        class: 'fill-editable', contenteditable: 'plaintext-only', spellcheck: 'false',
+        title: title || '点击可直接修改，填入的是这里的内容',
+      });
+      el.textContent = value;
+      return el;
+    };
     if (datePicks.length) {
       const h4 = h('h4', { class: 'fill-section-title t-date', text: `日期分框（${datePicks.length} 项，按出现顺序对应开始/结束，默认不勾选，请核对）` });
       sections.dates = h4;
       body.append(h4);
       for (const p of datePicks) {
         const cb = h('input', { type: 'checkbox' });
+        const valueEl = editableValue(p.value, '日期可直接修改，填入的是这里的内容');
         const row = h('label', { class: 'check-row fill-empty-row fill-date-row' },
           cb,
           h('span', { class: 'fill-empty-main' },
             h('b', { text: shortenBoxLabel(p.box) }),
             h('span', { class: 'fill-empty-target', text: p.hint })),
-          h('span', { class: 'fill-empty-value', text: p.value }));
+          h('span', { class: 'fill-empty-value' }, valueEl));
         body.append(row);
-        rows.push({ cb, date: p });
+        rows.push({ cb, date: p, valueEl, shown: p.value });
       }
     }
     if (fills.length) {
@@ -435,16 +451,19 @@ async function fillEmpties() {
       for (const m of fills) {
         const cb = h('input', { type: 'checkbox', checked: m.field.sensitive ? undefined : true });
         const { main, ctx } = boxParts(m.box);
+        const valueEl = editableValue(shorten(m.field.value));
         const row = h('label', { class: 'check-row fill-empty-row', title: m.box.label },
           cb,
           h('span', { class: 'fill-empty-main' },
-            h('b', null, h('span', { class: 'tag tag-src', text: '资料' }), m.field.label),
+            h('b', {}, h('span', { class: 'tag tag-src', text: '资料' }), m.field.label),
             h('span', { class: 'fill-empty-target' },
               h('span', { class: 'tag tag-site', text: '网站框' }), main,
               ctx ? h('span', { class: 'fill-empty-ctx', text: `　${ctx}` }) : null)),
-          h('span', { class: 'fill-empty-value', text: (m.field.sensitive ? '🔒 ' : '') + shorten(m.field.value) }));
+          h('span', { class: 'fill-empty-value' },
+            m.field.sensitive ? h('span', { text: '🔒 ' }) : null,
+            valueEl));
         body.append(row);
-        rows.push({ cb, m });
+        rows.push({ cb, m, valueEl, shown: shorten(m.field.value) });
       }
     }
     if (conflicts.length) {
@@ -456,11 +475,13 @@ async function fillEmpties() {
         const row = h('label', { class: 'check-row fill-empty-row fill-conflict-row', title: m.box.label },
           cb,
           h('span', { class: 'fill-empty-main' },
-            h('b', null, h('span', { class: 'tag tag-src', text: '资料' }), m.field.label),
+            h('b', {}, h('span', { class: 'tag tag-src', text: '资料' }), m.field.label),
             h('span', { class: 'fill-diff-old', text: '网站：' + shorten(m.box.value) }),
-            h('span', { class: 'fill-diff-new', text: (m.field.sensitive ? '🔒 ' : '') + '资料：' + shorten(m.field.value) })));
+            h('span', { class: 'fill-diff-new' },
+              (m.field.sensitive ? '🔒 ' : '') + '资料：',
+              editableValue(shorten(m.field.value), '可修改后再勾选覆盖网站内容'))));
         body.append(row);
-        rows.push({ cb, m, isConflict: true });
+        rows.push({ cb, m, isConflict: true, valueEl: row.querySelector('.fill-editable'), shown: shorten(m.field.value) });
       }
     }
     if (unknown.length) {
@@ -474,14 +495,21 @@ async function fillEmpties() {
     if (rows.some((x) => x.m?.field?.sensitive)) {
       body.append(h('p', { class: 'modal-description', text: '🔒 标记的是敏感字段，默认不勾选；确认本网站正规后再手动勾选。' }));
     }
+    body.append(h('p', { class: 'modal-description', text: '小提示：右侧的值可以直接点击修改（如奖项等级、日期），填入以修改后的为准。' }));
     foot.append(h('span', { class: 'spacer' }),
       button('取消', () => finish(null), { kind: 'quiet' }),
       button('填入选中项', () => finish(rows.filter((x) => x.cb.checked)), { kind: 'primary' }));
   });
   if (!picks || !picks.length) return;
-  const items = picks.map((x) => x.date
-    ? { frameId: x.date.box.frameId, index: x.date.box.index, value: x.date.value }
-    : { frameId: x.m.box.frameId, index: x.m.box.index, value: x.m.field.value });
+  const itemValue = (x) => {
+    const edited = x.valueEl?.textContent.trim();
+    const original = x.date ? x.date.value : x.m.field.value;
+    return edited && edited !== x.shown ? edited : original;   // 未编辑时用完整原值（显示可能被截断）
+  };
+  const items = picks.map((x) => {
+    const box = x.date ? x.date.box : x.m.box;
+    return { frameId: box.frameId, index: box.index, value: itemValue(x) };
+  });
   toast(`正在写入 ${items.length} 项…`);
   try {
     const result = await message('BATCH_FILL', { items });
@@ -845,7 +873,7 @@ function buildShell() {
         h('div', { class: 'search-box', role: 'search' }, icon('search', 14), searchInput),
         h('div', { class: 'topbar-actions' },
           (themeBtn = button('主题', themeDialog, { kind: 'quiet icon-only', symbol: 'settings', title: `主题 · ${themeName()}` })),
-          button('一键核对', fillEmpties, { kind: 'primary', symbol: 'scan', title: '扫描本页输入框：补齐空框 + 核对差异，可整体撤回' }),
+          button('一键核对', fillEmptiesSafe, { kind: 'primary', symbol: 'scan', title: '扫描本页输入框：补齐空框 + 核对差异，可整体撤回' }),
           button('更多', () => moreMenu(), { kind: 'quiet icon-only', symbol: 'menu', title: '导出 / 导入 / 历史 / AI 定制' })))
     : h('header', { class: 'topbar' },
         h('div', { class: 'brand' },
@@ -858,7 +886,7 @@ function buildShell() {
           button('AI 识别简历', aiImportDialog, { kind: 'accent', symbol: 'scan', title: '粘贴简历原文，AI 自动提取到对应分类字段（不编造，先预览再导入）' }),
           button('AI 按 JD 定制', aiDialog, { kind: 'accent', symbol: 'spark', title: '粘贴职位描述（JD），AI 只基于现有内容改写相关字段' }),
           button('更多', () => moreMenu([
-            ['一键核对本页表单', fillEmpties, 'scan'],
+            ['一键核对本页表单', fillEmptiesSafe, 'scan'],
             ['字体大小', fontDialog, 'type'],
             ['主题 · ' + themeName(), themeDialog, 'settings'],
             ['导出资料 / 空白模板', exportDialog, 'download'],
@@ -890,7 +918,7 @@ function buildShell() {
 /** 低频管理动作收进「更多」菜单；actions: [label, handler, symbol, kind?]，
  *  填写模式默认含「清除全部资料」；manager 底栏已常驻同一入口，传入的列表不再重复。 */
 async function moreMenu(actions = [
-  ['一键核对本页表单', fillEmpties, 'scan'],
+  ['一键核对本页表单', fillEmptiesSafe, 'scan'],
   ['AI 一键识别简历', aiImportDialog, 'scan'],
   ['AI 按 JD 定制', aiDialog, 'spark'],
   ['字体大小', fontDialog, 'type'],
