@@ -736,6 +736,7 @@ function buildShell() {
         h('div', { class: 'search-box', role: 'search' }, icon('search', 14), searchInput),
         h('div', { class: 'topbar-actions' },
           (themeBtn = button('主题', themeDialog, { kind: 'quiet icon-only', symbol: 'settings', title: `主题 · ${themeName()}` })),
+          button('一键核对', fillEmpties, { kind: 'primary', symbol: 'scan', title: '扫描本页输入框：补齐空框 + 核对差异，可整体撤回' }),
           button('更多', () => moreMenu(), { kind: 'quiet icon-only', symbol: 'menu', title: '导出 / 导入 / 历史 / AI 定制' })))
     : h('header', { class: 'topbar' },
         h('div', { class: 'brand' },
