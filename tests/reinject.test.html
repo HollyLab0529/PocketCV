@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>重注入接管测试</title>
+</head>
+<body>
+<h3>模拟「扩展更新后旧脚本占位 → 重新注入」</h3>
+<pre id="out">运行中…</pre>
+<script>
+  const out = document.getElementById('out');
+  const lines = [];
+  // 第一步：正常注入（首次初始化）
+  await0().then(() => inject('/bridge/content.js')).then(() => {
+    lines.push('首次注入：flag=' + JSON.stringify(window.__pocketcvBridge));
+    // 第二步：模拟旧版本脚本占位（扩展更新前页面里遗留的 flag）
+    window.__pocketcvBridge = 'legacy';
+    return inject('/bridge/content.js');
+  }).then(() => {
+    lines.push('重新注入后：flag=' + JSON.stringify(window.__pocketcvBridge));
+    lines.push(window.__pocketcvBridge !== 'legacy' ? 'PASS 新脚本接管成功' : 'FAIL 仍被旧占位阻塞');
+    // 第三步：同版本重复注入应跳过（不重复初始化）
+    const before = window.__pocketcvBridge;
+    return inject('/bridge/content.js').then(() => {
+      lines.push(window.__pocketcvBridge === before ? 'PASS 同版本重复注入跳过' : 'FAIL 同版本被重复初始化');
+      document.title = lines.some((l) => l.startsWith('FAIL')) ? 'FAIL' : 'PASS 2';
+      out.textContent = lines.join('\n');
+    });
+  }).catch((e) => {
+    out.textContent = 'ERROR ' + (e && e.message || e);
+    document.title = 'FAIL';
+  });
+  function await0() { return Promise.resolve(); }
+  function inject(src) {
+    return new Promise((resolve) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      document.head.appendChild(s);
+    });
+  }
+</script>
+</body>
+</html>

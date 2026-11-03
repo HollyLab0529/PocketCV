@@ -1,9 +1,13 @@
 // 口袋简历 PocketCV · 网页桥接脚本（通过 chrome.scripting 注入招聘网页，隔离世界运行）
 // 职责：跟踪用户在网页里点选的输入框；接收指令把资料写入该输入框；支持撤回。
 (() => {
-  if (window.__pocketcvBridge) return;
+  // 版本戳守卫：扩展重载/更新后，旧脚本的 chrome.runtime 通道已失效（FOCUS 上报静默失败、
+  // 写入指令无人接收），必须允许新版本脚本重新初始化接管页面；同版本重复注入仍跳过。
+  let VER = '';
+  try { VER = chrome.runtime.getManifest().version; } catch { /* 非扩展环境（本地测试页） */ }
+  if (window.__pocketcvBridge === VER) return;
+  window.__pocketcvBridge = VER;
   const bridge = {};
-  window.__pocketcvBridge = bridge;
 
   const FORBIDDEN = new Set(['password', 'file', 'hidden', 'checkbox', 'radio', 'button', 'submit', 'reset', 'image', 'range', 'color']);
   const RICH = '.ProseMirror,.ql-editor,.ck-editor__editable,[data-lexical-editor],[data-slate-editor]';
