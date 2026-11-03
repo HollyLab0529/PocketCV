@@ -422,13 +422,16 @@ async function fillEmpties() {
     body.append(coverageRich());
     if (unknown.length >= 3) body.append(manualWarn());
     const rows = [];
-    // 值可直接点击修改（含日期）：填入以编辑后的为准；未编辑则用原值
+    // 值可直接点击修改（含日期）：填入以编辑后的为准；未编辑则用原值。
+    // 阻止点击/回车冒泡到外层 <label>，否则会反复切换左侧复选框（表现为一闪一闪）。
     const editableValue = (value, title) => {
       const el = h('span', {
         class: 'fill-editable', contenteditable: 'plaintext-only', spellcheck: 'false',
         title: title || '点击可直接修改，填入的是这里的内容',
       });
       el.textContent = value;
+      el.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); });
+      el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); el.blur(); } });
       return el;
     };
     if (datePicks.length) {
@@ -500,7 +503,19 @@ async function fillEmpties() {
       body.append(h('p', { class: 'modal-description', text: '🔒 标记的是敏感字段，默认不勾选；确认本网站正规后再手动勾选。' }));
     }
     body.append(h('p', { class: 'modal-description', text: '小提示：右侧的值可以直接点击修改（如奖项等级、日期），填入以修改后的为准。' }));
-    foot.append(h('span', { class: 'spacer' }),
+    // 全选/取消全选（含敏感项，勾选后请留意）；单个勾选变化时同步全选框状态
+    const cbAll = h('input', { type: 'checkbox' });
+    const syncAll = () => {
+      cbAll.checked = rows.every((x) => x.cb.checked);
+      cbAll.indeterminate = !cbAll.checked && rows.some((x) => x.cb.checked);
+    };
+    for (const x of rows) x.cb.addEventListener('change', syncAll);
+    syncAll();
+    cbAll.addEventListener('change', () => { for (const x of rows) x.cb.checked = cbAll.checked; });
+    foot.append(
+      h('label', { class: 'check-row select-all-row', title: '全选/取消全部（含敏感项，请留意）' },
+        cbAll, h('span', { text: '全选' })),
+      h('span', { class: 'spacer' }),
       button('取消', () => finish(null), { kind: 'quiet' }),
       button('填入选中项', () => finish(rows.filter((x) => x.cb.checked)), { kind: 'primary' }));
   });
@@ -992,7 +1007,7 @@ headNode.append(...[  // 注意：append(字面 null) 会渲染成 'null' 文本
   h('span', { class: 'spacer' }),
   fillMode ? button(prefs.hideEmpty ? '显示全部' : '只看已填', () => { prefs.hideEmpty = !prefs.hideEmpty; savePrefs(); render(); }, { kind: 'quiet' }) : null,
   fillMode ? null : button('分类设置', () => moduleSettings(m.id), { kind: 'quiet', symbol: 'settings' }),
-  fillMode ? null : button('添加记录', () => addEntry(m.id), { kind: 'quiet', symbol: 'plus' })].filter(Boolean));
+  fillMode ? null : button('添加记录', () => addEntry(m.id), { kind: 'quiet', symbol: 'plus', title: '新建一条记录（一组字段，如一段实习经历）；想加单个字段请用记录卡片底部的「添加字段」' })].filter(Boolean));
 }
 
 function countMatches() {
@@ -1083,7 +1098,7 @@ function renderEntry(m, e, index) {
         : h('div', { class: 'field-grid' }, shown.map((f) => renderField(e, f))));
     }
     if (!fillMode) card.append(h('div', { class: 'record-bottom' },
-      button('添加字段', () => addField(e.id), { kind: 'small quiet', symbol: 'plus' })));
+      button('添加字段', () => addField(e.id), { kind: 'small quiet', symbol: 'plus', title: '在这条记录里添加一个新字段（如「姓名」）；想新建一整组字段请用顶部的「添加记录」' })));
   }
   return card;
 }
@@ -1176,7 +1191,8 @@ async function moduleForm(title, initial) {
 async function addEntry(moduleId) {
   const m = profile.modules.find((x) => x.id === moduleId);
   if (!m) return;
-  const title = await askText('新增记录', '记录标题', '', '例如：示例公司 · 产品经理、某段项目经历');
+  const title = await askText('新增记录（字段组）', '记录标题', '', '例如：示例公司 · 产品经理、某段项目经历；会创建与第一条记录相同结构的一组新字段',
+    '想加单个字段（如「姓名」）请用记录卡片底部的「添加字段」，这里创建的是一整组字段。');
   if (!title) return;
   const template = m.entries[0]?.fields?.map((f) => ({ label: f.label, group: f.group, type: f.type, sensitive: f.sensitive }))
     || [{ label: '内容', group: '', type: 'multiline', sensitive: false }];
@@ -1667,9 +1683,10 @@ function askPassword(title, confirmPassword = false) {
   });
 }
 
-function askText(title, label, value = '', hint = '') {
+function askText(title, label, value = '', hint = '', note = '') {
   return modal(title, ({ body, foot, finish }) => {
     const input = h('input', { type: 'text', required: true, maxlength: LIMITS.label, value, placeholder: hint });
+    if (note) body.append(h('p', { class: 'modal-description', text: note }));
     body.append(inputLabel(label, input, hint));
     const submit = () => { if (input.reportValidity() && input.value.trim()) finish(input.value.trim()); };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });

@@ -178,11 +178,19 @@ dialog.modal:not(:has(.modal-foot button)) .modal-foot{display:none}
 /* 日期分框分区：蓝色系 */
 .fill-section-title.t-date::before{background:#3b6ea5}
 .fill-date-row{box-shadow:inset 2px 0 0 color-mix(in srgb, #3b6ea5 50%, transparent)}
-/* 值可编辑：点击直接改，填入以编辑后为准 */
-.fill-editable{padding:1px 3px;border-radius:3px;cursor:text;word-break:break-all;min-width:1em}
-.fill-editable:hover{background:color-mix(in srgb, var(--ink) 8%, transparent)}
-.fill-editable:focus{outline:1.5px solid #3a7d5c;background:#fff}
-:root[data-theme="haze"] .fill-editable:focus,:root[data-theme="sage"] .fill-editable:focus,:root[data-theme="oat"] .fill-editable:focus{background:var(--bg)}
+/* 值可编辑：输入框观感，点击直接改，填入以编辑后为准 */
+.fill-empty-value{flex:1 1 auto;min-width:96px;margin-left:8px}
+.fill-editable{display:block;width:100%;box-sizing:border-box;padding:4px 8px;border:1px solid color-mix(in srgb, var(--ink) 20%, transparent);border-radius:6px;background:var(--bg);cursor:text;word-break:break-all;font-weight:400;font-size:12px}
+.fill-editable:hover{border-color:color-mix(in srgb, #3a7d5c 55%, transparent)}
+.fill-editable:focus{outline:none;border-color:#3a7d5c;background:#fff}
+.select-all-row{margin-right:auto;font-size:12.5px;color:var(--ink)}
+/* 侧栏较窄：值框换到字段名下方，避免挤压换行 */
+@media (max-width: 560px) {
+  .fill-empty-row{flex-wrap:wrap}
+  .fill-empty-main{flex:1 1 auto;min-width:0}
+  .fill-empty-value{flex:1 1 100%;margin-left:24px}
+  .fill-empty-value .fill-diff-old,.fill-empty-value .fill-diff-new{display:block}
+}
 /* 未识别空框：可点击定位的小按钮流式排列 */
 .fill-unknown-list{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 0}
 .unknown-item{font-size:11.5px;padding:3px 8px}
