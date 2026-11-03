@@ -226,5 +226,21 @@ check('sameValue 空值视为一致', sameValue('', 'x') === true && sameValue('
   check('只有开始侧 2 个建议，结束年框留空', dates.length === 2 && dates[0].value === '2023' && dates[1].value === '06', JSON.stringify(dates.map((d) => d.value)));
 }
 
+// 19. 拆分后的技能字段匹配：技能名称/掌握程度/技能详情 各自独立命中，且不误配到「技能类别」类框
+{
+  console.log('[拆分技能字段匹配]');
+  const p = {
+    modules: [{
+      id: 'm', name: '技能', tier: '常用',
+      entries: [{ id: 'e', title: '技能清单', fields: [field('k1', '技能名称', 'SQL'), field('k2', '掌握程度', '熟练'), field('k3', '技能详情', '日常开发与评测分析')] }],
+    }],
+  };
+  const ms = matchBoxes([box('技能名称'), box('熟练程度'), box('技能类别')], p);
+  const byBox = Object.fromEntries(ms.map((m) => [m.box.label, m.field.label]));
+  check('技能名称框 → 技能名称字段', byBox['技能名称'] === '技能名称', JSON.stringify(byBox));
+  check('熟练程度框 → 掌握程度字段（同义词）', byBox['熟练程度'] === '掌握程度', JSON.stringify(byBox));
+  check('技能类别框不误配（「技能」「详情」是泛义词头）', byBox['技能类别'] === undefined, JSON.stringify(byBox));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

@@ -1,6 +1,6 @@
 // 口袋简历 PocketCV · 应用入口
 // 第 2 期：分类分层导航 + 记录/字段完整管理 + 全局搜索 + 敏感遮挡 + 主题切换
-import { validateProfile, stats, starterProfile, templateProfile, makeModule, makeEntry, makeField, getEntry, clone, emptyProfile, LIMITS, TIERS, TYPES, TYPE_NAMES, moveItem, summary, searchable, mask, uid } from '../domain/model.js';
+import { validateProfile, stats, starterProfile, templateProfile, makeModule, makeEntry, makeField, getEntry, clone, emptyProfile, LIMITS, TIERS, TYPES, TYPE_NAMES, moveItem, summary, searchable, mask, uid, splitSkillField } from '../domain/model.js';
 import { createRepository, isExtension, message } from '../infra/repository.js';
 import { encryptProfile, decryptProfile } from '../infra/vault.js';
 import { exportProfileWorkbook, importProfileWorkbook } from '../infra/xlsx.js';
@@ -1149,6 +1149,7 @@ function renderField(e, f) {
     f.sensitive && !revealed.has(f.id) ? (maskedNode = h('span', { class: 'field-masked', text: mask(f.value) })) : null,
     h('span', { class: 'spacer' }),
     h('span', { class: 'field-type', text: f.sensitive ? '敏感' : TYPE_NAMES[f.type] || '' }),
+    splitSkillField(f) ? button('拆分', () => splitFieldDialog(e.id, f), { kind: 'quiet', title: `拆分「${f.label}」：技能名称 / 掌握程度 / 技能详情` }) : null,
     button('编辑字段 ' + f.label, () => editField(e.id, f.id), { kind: 'quiet icon-only', symbol: 'edit', title: '编辑字段：' + f.label }));
   return h('div', { class: f.type === 'multiline' ? 'field field-wide' : 'field' }, labelRow, control);
 }
@@ -1289,6 +1290,43 @@ async function addField(entryId) {
   commit((p) => {
     getEntry(p, entryId).entry.fields.push(makeField(result.label, result.group, result.type, result.sensitive));
   });
+}
+
+// 把「熟练度：详情」合并写法的技能字段拆成 技能名称 / 掌握程度 / 技能详情 三个字段，
+// 拆分后一键核对即可分别匹配网站的技能名称框与掌握程度框（原字段名作为技能名称的值）
+async function splitFieldDialog(entryId, f) {
+  const parts = splitSkillField(f);
+  if (!parts) { toast('这个字段的值不是「熟练度：详情」的合并写法，无需拆分。', true); return; }
+  const flat = (s) => String(s).replace(/\s+/g, ' ').slice(0, 60);
+  const rows = [
+    ['技能名称', f.label],
+    ['掌握程度', parts.level],
+    ...(parts.detail ? [['技能详情', parts.detail]] : []),
+  ];
+  const ok = await modal('拆分技能字段', ({ body, foot, finish }) => {
+    body.append(h('p', { class: 'modal-description', text: `「${f.label}」把熟练度和详情合并在一个值里，而网站上的技能名称、掌握程度是分开的输入框。拆分后一键核对可分别匹配填入：` }));
+    for (const [label, value] of rows) {
+      body.append(h('div', { class: 'check-row' },
+        h('span', { class: 'tag tag-src', text: label }),
+        h('span', { class: 'fill-diff-new', text: flat(value) })));
+    }
+    foot.append(h('span', { class: 'spacer' }),
+      button('取消', () => finish(null), { kind: 'quiet' }),
+      button('拆分', () => finish(true), { kind: 'primary' }));
+  });
+  if (!ok) return;
+  commit((p) => {
+    const entry = getEntry(p, entryId)?.entry;
+    const idx = entry ? entry.fields.findIndex((x) => x.id === f.id) : -1;
+    if (idx < 0) return;
+    const created = rows.map(([label, value]) => {
+      const nf = makeField(label, f.group || '', 'text', f.sensitive);
+      nf.value = value;
+      return nf;
+    });
+    entry.fields.splice(idx, 1, ...created);
+  }, '拆分技能字段前');
+  toast(rows.length === 3 ? '已拆分为 技能名称 / 掌握程度 / 技能详情 三个字段。' : '已拆分为 技能名称 / 掌握程度 两个字段。');
 }
 
 async function editField(entryId, fieldId) {

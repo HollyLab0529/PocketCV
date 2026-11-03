@@ -32,6 +32,16 @@ export function makeField(label, group = '', type = 'text', sensitive = false) {
   return { id: uid('f'), label: String(label).slice(0, LIMITS.label), group: String(group).slice(0, LIMITS.label), type, value: '', sensitive: !!sensitive };
 }
 
+// 「程度：详情」合并写法检测：技能类字段常把熟练度和详情写在一个值里（如「熟练：Spring Boot / MyBatis…」），
+// 而网站上的技能名称、掌握程度是分开的输入框。返回 { level, detail } 供一键拆分；不是合并写法返回 null。
+const SKILL_LEVEL_RE = /^(熟练|精通|掌握|熟悉|了解|入门|一般|初级|中级|高级|认证|证书)[：:]\s*/;
+
+export function splitSkillField(f) {
+  const m = String(f?.value || '').match(SKILL_LEVEL_RE);
+  if (!m) return null;
+  return { level: m[1], detail: f.value.slice(m[0].length).trim() };
+}
+
 export function emptyProfile() {
   return { version: VERSION, id: uid('p'), name: '我的求职资料', revision: 0, updatedAt: new Date().toISOString(), modules: [] };
 }
