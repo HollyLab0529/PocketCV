@@ -125,7 +125,7 @@
 
   // ===== 一键处理本页表单：扫描全部输入框 → 按索引批量写入 → 批量撤回 =====
   let scanList = [];       // 扫描到的输入框（本次文档生命周期内有效）
-  let batchUndo = null;    // [{ el, before, nodes, after }]
+  let batchUndo = null;    // [{ index, label, before, nodes, after }]（按扫描序号定位，抗网页重渲染）
 
   const deepInputs = (root, out) => {
     for (const el of root.querySelectorAll('input, textarea, select, [contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]')) {
@@ -192,7 +192,7 @@
       if (!el) { results.push({ label: '已失效的输入框', ok: false, error: '页面已变化，请重新扫描。' }); continue; }
       try {
         const r = await writeEl(el, String(item.value || ''));
-        undoEntries.push({ el, before: r.before, nodes: r.nodes, after: r.after });
+        undoEntries.push({ index: Number(item.index), label: r.label, before: r.before, nodes: r.nodes, after: r.after });
         results.push({ label: r.label, ok: true, characters: r.characters });
       } catch (e) {
         results.push({ label: labelOf(el), ok: false, error: e.message || '写入失败。' });
@@ -204,15 +204,18 @@
 
   function undoBatch() {
     if (!batchUndo) throw new Error('当前页面没有批量填入记录。');
-    let restored = 0;
+    const total = batchUndo.length;
+    let restored = 0, skipped = 0;
+    scanPage();   // 网站可能重渲染了输入框（React 类常见），按扫描序号重新定位，不能复用旧元素
     for (const u of batchUndo) {
-      if (!editable(u.el) || nativeValue(u.el) !== u.after) continue;   // 用户已手动改过的不碰
-      if (u.nodes) u.el.replaceChildren(...u.nodes); else assignValue(u.el, u.before);
-      u.el.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'historyUndo' }));
+      const el = scanList[u.index];
+      if (!el || !editable(el) || nativeValue(el).trim() !== String(u.after).trim()) { skipped += 1; continue; }   // 已被网站保留/手动改过的不碰
+      if (u.nodes) el.replaceChildren(...u.nodes); else assignValue(el, u.before);
+      fire(el, 'historyUndo');
       restored += 1;
     }
     batchUndo = null;
-    return { restored };
+    return { restored, skipped, total };
   }
 
   function undoWrite() {

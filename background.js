@@ -128,16 +128,16 @@ chrome.runtime.onMessage.addListener((request, sender, respond) => {
         if (!undo) throw new Error('当前页面没有可撤回的填写。');
         if (undo.batch) {
           // 批量补齐的撤回：恢复各 frame 的写入前快照
-          let restored = 0;
+          let restored = 0, skipped = 0, total = 0;
           for (const frameId of undo.frames || [0]) {
             try {
               const result = await chrome.tabs.sendMessage(tab.id, { type: 'UNDO_BATCH' }, { frameId });
-              if (result?.ok) restored += result.data?.restored || 0;
+              if (result?.ok) { restored += result.data?.restored || 0; skipped += result.data?.skipped || 0; total += result.data?.total || 0; }
             } catch { /* 该 frame 已跳转，跳过 */ }
           }
           undos.delete(tab.id);
           publish();
-          return { restored };
+          return { restored, skipped, total };
         }
         const result = await chrome.tabs.sendMessage(tab.id, { type: 'UNDO_FIELD' }, { documentId: undo.documentId });
         if (!result?.ok) throw new Error(result?.error || '不能撤回，请核对网页。');

@@ -588,7 +588,13 @@ async function viewField(field, note = '') {
 async function undoFill() {
   try {
     const result = await message('UNDO_FILL');
-    toast(`已撤回${result?.label ? `「${result.label}」` : ''}的填写。`);
+    if (typeof result?.restored === 'number') {
+      const total = result.total ?? result.restored;
+      if (result.restored === total) toast(`已撤回 ${total} 项填写。`);
+      else toast(`已撤回 ${result.restored}/${total} 项；其余项已被网站保留或手动改过，请刷新页面核对。`, true);
+    } else {
+      toast(`已撤回${result?.label ? `「${result.label}」` : ''}的填写。`);
+    }
   } catch (error) {
     toast(errorMessage(error), true);
   } finally {
