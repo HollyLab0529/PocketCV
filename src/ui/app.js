@@ -1124,8 +1124,14 @@ function renderEntry(m, e, index) {
         ? h('div', { class: 'fill-list' }, shown.map((f) => renderFillField(e, f)))
         : h('div', { class: 'field-grid' }, shown.map((f) => renderField(e, f))));
     }
-    if (!fillMode) card.append(h('div', { class: 'record-bottom' },
-      button('添加字段', () => addField(e.id), { kind: 'small quiet', symbol: 'plus', title: '在这条记录里添加一个新字段（如「姓名」）；想新建一整组字段请用顶部的「添加记录」' })));
+    if (!fillMode) {
+      const bottom = h('div', { class: 'record-bottom' },
+        button('添加字段', () => addField(e.id), { kind: 'small quiet', symbol: 'plus', title: '在这条记录里添加一个新字段（如「姓名」）；想新建一整组字段请用顶部的「添加记录」' }));
+      if (e.fields.some((f) => splitSkillField(f))) {
+        bottom.append(button('一键拆分全部', () => splitAllDialog(e.id), { kind: 'small quiet', symbol: 'target', title: '把这条记录里所有「熟练度：详情」合并写法的字段，批量拆成 技能名称 / 掌握程度 / 技能详情' }));
+      }
+      card.append(bottom);
+    }
   }
   return card;
 }
@@ -1327,6 +1333,48 @@ async function splitFieldDialog(entryId, f) {
     entry.fields.splice(idx, 1, ...created);
   }, '拆分技能字段前');
   toast(rows.length === 3 ? '已拆分为 技能名称 / 掌握程度 / 技能详情 三个字段。' : '已拆分为 技能名称 / 掌握程度 两个字段。');
+}
+
+// 批量拆分：一条记录里所有合并写法的字段一次拆完
+async function splitAllDialog(entryId) {
+  const found = getEntry(profile, entryId);
+  if (!found) return;
+  const plan = found.entry.fields
+    .filter((f) => splitSkillField(f))
+    .map((f) => {
+      const parts = splitSkillField(f);
+      return { id: f.id, label: f.label, group: f.group || '', sensitive: f.sensitive,
+        rows: [['技能名称', f.label], ['掌握程度', parts.level], ...(parts.detail ? [['技能详情', parts.detail]] : [])] };
+    });
+  if (!plan.length) { toast('这条记录里没有「熟练度：详情」合并写法的字段。', true); return; }
+  const flat = (s) => String(s).replace(/\s+/g, ' ').slice(0, 40);
+  const ok = await modal('一键拆分全部', ({ body, foot, finish }) => {
+    body.append(h('p', { class: 'modal-description', text: `这条记录有 ${plan.length} 个字段是「熟练度：详情」的合并写法。拆分后一键核对可分别匹配网站的技能名称框与掌握程度框：` }));
+    for (const item of plan) {
+      body.append(h('div', { class: 'check-row' },
+        h('span', { class: 'tag tag-src', text: item.label }),
+        h('span', { class: 'fill-diff-new', text: item.rows.map(([l, v]) => `${l}：${flat(v)}`).join(' · ') })));
+    }
+    foot.append(h('span', { class: 'spacer' }),
+      button('取消', () => finish(null), { kind: 'quiet' }),
+      button(`拆分 ${plan.length} 个字段`, () => finish(true), { kind: 'primary' }));
+  });
+  if (!ok) return;
+  commit((p) => {
+    const entry = getEntry(p, entryId)?.entry;
+    if (!entry) return;
+    for (const item of plan) {
+      const idx = entry.fields.findIndex((x) => x.id === item.id);
+      if (idx < 0) continue;
+      const created = item.rows.map(([label, value]) => {
+        const nf = makeField(label, item.group, 'text', item.sensitive);
+        nf.value = value;
+        return nf;
+      });
+      entry.fields.splice(idx, 1, ...created);
+    }
+  }, '批量拆分技能字段前');
+  toast(`已拆分 ${plan.length} 个字段。`);
 }
 
 async function editField(entryId, fieldId) {
