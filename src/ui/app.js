@@ -349,31 +349,35 @@ async function fillEmpties() {
     return;
   }
   const matches = matchBoxes(boxes, profile);
+  // 日期分框（年/月/日 或 年月整体框）：按记录锚点拆「起止时间」，默认不勾选，由用户核对
+  // 先算日期分框，再从普通匹配结果中剔除被日期占用的框，避免同一个框重复出现在两个分区
+  const datePicks = matchDateComponents(boxes, matches, profile);
+  const dateBoxSet = new Set(datePicks.map((p) => p.box));
   // 三类结果：待补齐（空框对上字段）、不一致（已填值与资料值不同）、未识别（没对上字段的空框）
   const matchedBox = new Set(matches.map((m) => m.box));
-  const fills = matches.filter((m) => !m.box.value);
-  const conflicts = matches.filter((m) => !!m.box.value && !sameValue(m.box.value, m.field.value));
+  const fills = matches.filter((m) => !m.box.value && !dateBoxSet.has(m.box));
+  const conflicts = matches.filter((m) => !!m.box.value && !sameValue(m.box.value, m.field.value) && !dateBoxSet.has(m.box));
   const unknown = boxes.filter((b) => !matchedBox.has(b) && !b.value);
-  const sameCount = matches.length - fills.length - conflicts.length;
-  // 日期分框（年/月/日 或 年月整体框）：按记录锚点拆「起止时间」，默认不勾选，由用户核对
-  const datePicks = matchDateComponents(boxes, matches, profile);
+  const sameCount = matches.length - fills.length - conflicts.length
+    - datePicks.filter((p) => matchedBox.has(p.box)).length;
   const coverage = `本页共 ${boxes.length} 个输入框：可补齐 ${fills.length} · 可纠错 ${conflicts.length} · 需手动 ${unknown.length}`
-    + (datePicks.length ? ` · 日期 ${datePicks.length}` : '')
+    + (datePicks.length ? ` · 日期分框 ${datePicks.length}` : '')
     + (sameCount ? ` · 已一致 ${sameCount}` : '');
   // 彩色可点击版覆盖汇总：点数字跳到对应分区；绿=可补齐、蓝=日期、橙=可纠错、灰=需手动
   const sections = {};   // anchor name -> h4 元素，供汇总点击滚动
-  const scrollTo = (name) => sections[name]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // 注意：native <dialog> 内 smooth 滚动在部分 Chrome 版本上不生效，用 auto 确保点击必有反馈
+  const scrollTo = (name) => sections[name]?.scrollIntoView({ behavior: 'auto', block: 'start' });
   const covChip = (name, cls, label, countNum) => {
     if (!countNum) return h('span', { class: `cov ${cls}`, text: `${label} 0` });
     return h('button', {
       class: `cov cov-link ${cls}`, type: 'button', text: `${label} ${countNum}`,
-      title: `点击查看${label}的明细`, onclick: () => scrollTo(name),
+      title: `点击查看${label}的明细`, on: { click: () => scrollTo(name) },
     });
   };
   const coverageRich = () => h('p', { class: 'modal-description' },
     `本页共 ${boxes.length} 个输入框：`,
     covChip('fills', 'cov-fill', '可补齐', fills.length), ' · ',
-    covChip('dates', 'cov-date', '日期', datePicks.length), ' · ',
+    covChip('dates', 'cov-date', '日期分框', datePicks.length), ' · ',
     covChip('conflicts', 'cov-conflict', '可纠错', conflicts.length), ' · ',
     covChip('unknown', 'cov-manual', '需手动', unknown.length),
     sameCount ? h('span', { class: 'cov cov-same', text: ` · 已一致 ${sameCount}` }) : null);

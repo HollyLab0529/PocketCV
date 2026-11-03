@@ -158,7 +158,7 @@ export function matchBoxes(boxes, profile) {
 // 网申网站的起止时间是 年/月/日 独立小框或「年月」整体框，无法按字段名对上资料。
 // 策略：以最近一条命中的记录（教育/实习/项目）为锚，解析该记录的「起止时间」类字段，
 // 同一段内的日期分框按出现次序对应 开始(第1个)→结束(第2个)。
-const DATE_PART = /^(年|月|日|年份|月份|年月)$/;
+const DATE_PART = /^(?:开始|结束)?(?:年|月|日|年份|月份|年月)$/;
 const DATE_FIELD = /起止|时间段|在校|任职|期间|起止时间|时间/;
 const DATE_EXCLUDE = /出生|生日|身份证|证件/;
 
@@ -180,6 +180,10 @@ export function parseDateRange(text) {
 }
 
 // 返回 [{ box, value, hint }]：hint 说明「开始/结束·年份/月份」及来源字段，UI 默认不勾选由用户确认
+// 轮次判定（开始=第0轮 / 结束=第1轮），优先级：
+//   1. 框名明确带「开始/结束」方向词 → 直接定轮
+//   2. 开始轮里同部件再次出现 → 切到结束轮（交错布局：年月年月）
+//   3. 结束轮里遇到开始轮没有的部件 → 说明过早切轮，回退开始轮（连排布局：年年月月）
 export function matchDateComponents(boxes, matches, profile) {
   const entryOfField = new Map();
   for (const mod of profile.modules) {
@@ -189,34 +193,49 @@ export function matchDateComponents(boxes, matches, profile) {
   }
   const matchByBox = new Map(matches.map((m) => [m.box, m]));
   const picks = [];
-  let sides = null;         // 当前记录的 [开始, 结束]
+  let sides = null;            // 当前记录的 [开始, 结束]
   let sourceLabel = '';
-  let count = { 年: 0, 月: 0, 日: 0, 年月: 0 };
+  let cur = 0;                 // 当前轮：0=开始 1=结束
+  const seen = [new Set(), new Set()];
   for (const box of boxes) {
     if (DATE_EXCLUDE.test(box.label)) continue;
     const m = matchByBox.get(box);
+    let part = null;
     if (m) {
-      // 新记录锚点：命中了另一条记录的字段时重置日期上下文
       const e = entryOfField.get(m.field.id);
-      if (e) {
-        const df = (e.fields || []).find((f) => DATE_FIELD.test(f.label) && typeof f.value === 'string' && f.value.trim());
-        sides = df ? parseDateRange(df.value) : null;
-        sourceLabel = df ? df.label : '';
-        count = { 年: 0, 月: 0, 日: 0, 年月: 0 };
-      }
-      continue;
+      if (!e) continue;
+      // 记录锚点：命中记录字段时重置日期上下文
+      const df = (e.fields || []).find((f) => DATE_FIELD.test(f.label) && typeof f.value === 'string' && f.value.trim());
+      sides = df ? parseDateRange(df.value) : null;
+      sourceLabel = df ? df.label : '';
+      cur = 0;
+      seen[0].clear();
+      seen[1].clear();
+      // 被普通匹配器抢占的日期部件框（框名「开始时间」配上了资料「起止时间」整值）→ 还原为日期分框，继续分配本框
+      part = labelParts(box.label).find((p) => DATE_PART.test(p));
+      if (!(part && DATE_FIELD.test(m.field.label))) continue;
+    } else {
+      if (!sides || box.value) continue;
+      part = labelParts(box.label).find((p) => DATE_PART.test(p));
+      if (!part) continue;
     }
-    if (!sides || box.value) continue;
-    const part = labelParts(box.label).find((p) => DATE_PART.test(p));
-    if (!part) continue;
-    const comp = part === '年份' ? '年' : part === '月份' ? '月' : part;
-    const idx = count[comp]++;
-    if (idx > 1) continue;                        // 一段记录最多 开始+结束 两轮
-    const side = sides[idx];
+    if (box.value) continue;
+    const comp = part.replace(/^(开始|结束)/, '') === '年份' ? '年' : part.replace(/^(开始|结束)/, '') === '月份' ? '月' : part.replace(/^(开始|结束)/, '');
+    const dir = /开始|起/.test(box.label) ? 0 : /结束|止/.test(box.label) ? 1 : null;
+    if (dir !== null) {
+      cur = dir;
+    } else if (seen[0].has(comp)) {
+      cur = 1;                                  // 交错布局：同部件第二次出现
+    } else if (cur === 1 && !seen[1].has(comp) && !seen[0].has(comp)) {
+      cur = 0;                                  // 连排布局：过早切轮回退
+    }
+    if (seen[cur].has(comp)) continue;          // 该轮此部件已分配（多余的同部件框丢弃）
+    seen[cur].add(comp);
+    const side = sides[cur];
     if (!side) continue;
     const value = comp === '年' ? side.year : comp === '月' ? side.month : comp === '日' ? side.day : side.text;
     if (!value) continue;
-    picks.push({ box, value, hint: `${idx ? '结束' : '开始'}·${comp} ← 资料「${sourceLabel}」${side.text}` });
+    picks.push({ box, value, hint: `${cur ? '结束' : '开始'}·${comp} ← 资料「${sourceLabel}」${side.text}` });
   }
   return picks;
 }
