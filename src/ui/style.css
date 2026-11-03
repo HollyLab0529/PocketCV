@@ -159,6 +159,10 @@ dialog.modal:not(:has(.modal-foot button)) .modal-foot{display:none}
 .fill-section-title.t-fill::before{background:#3a7d5c}
 .fill-section-title.t-conflict::before{background:#c2703d}
 .fill-section-title.t-unknown::before{background:#98a0a8}
+.fill-section-title.t-same::before{background:#7fa08c}
+/* 已一致：只读展示，虚线框区别于可编辑输入框 */
+.fill-empty-row.fill-same-row{box-shadow:inset 2px 0 0 color-mix(in srgb, #7fa08c 50%, transparent)}
+.fill-same-text{display:block;padding:4px 8px;border:1px dashed color-mix(in srgb, var(--ink) 22%, transparent);border-radius:6px;color:var(--muted);font-weight:400;font-size:12px}
 .fill-empty-row{border-left:2px solid transparent}
 .fill-empty-row:not(.fill-conflict-row){box-shadow:inset 2px 0 0 color-mix(in srgb, #3a7d5c 45%, transparent)}
 .fill-conflict-row{box-shadow:inset 2px 0 0 color-mix(in srgb, #c2703d 55%, transparent)}

@@ -379,8 +379,8 @@ async function fillEmpties() {
     covChip('fills', 'cov-fill', '可补齐', fills.length), ' · ',
     covChip('dates', 'cov-date', '日期分框', datePicks.length), ' · ',
     covChip('conflicts', 'cov-conflict', '可纠错', conflicts.length), ' · ',
-    covChip('unknown', 'cov-manual', '需手动', unknown.length),
-    sameCount ? h('span', { class: 'cov cov-same', text: ` · 已一致 ${sameCount}` }) : null);
+    covChip('unknown', 'cov-manual', '需手动', unknown.length), ' · ',
+    covChip('sames', 'cov-same', '已一致', sameCount));
   // 多个空框无法自动填时，明确提醒用户（日期分框、自定义下拉、资料里没有的项），避免误以为已填完
   const manualWarn = () => h('p', { class: 'fill-warn', text: `⚠️ 本页有 ${unknown.length} 个输入框无法自动填（日期分框、下拉选择、或资料里没有对应项），提交前请逐个手动检查。` });
   const shorten = (s) => { const t = String(s || '').replace(/\s+/g, ' '); return t.slice(0, 30) + (t.length > 30 ? '…' : ''); };
@@ -399,11 +399,30 @@ async function fillEmpties() {
   const unknownItem = (b) => button(shortenBoxLabel(b), async () => {
     try { await message('GOTO_BOX', { frameId: b.frameId, index: b.index }); } catch { /* 页面已跳转等场景忽略 */ }
   }, { kind: 'quiet unknown-item', title: '点击在网页上定位这个输入框' });
+  // 已一致行：只读展示（资料值与网站现值一致，不会改动）
+  const sameRow = (m) => {
+    const { main, ctx } = boxParts(m.box);
+    return h('div', { class: 'check-row fill-empty-row fill-same-row', title: m.box.label },
+      h('span', { class: 'fill-empty-main' },
+        h('b', {}, h('span', { class: 'tag tag-src', text: '资料' }), m.field.label),
+        h('span', { class: 'fill-empty-target' },
+          h('span', { class: 'tag tag-site', text: '网站框' }), main,
+          ctx ? h('span', { class: 'fill-empty-ctx', text: `　${ctx}` }) : null)),
+      h('span', { class: 'fill-empty-value' }, h('span', { class: 'fill-same-text', text: shorten(m.field.value) })));
+  };
+  const sameSection = (container) => {
+    if (!sames.length) return;
+    const h4Same = h('h4', { class: 'fill-section-title t-same', text: `已一致（${sames.length} 项，网站已填且与资料一致，不会改动）` });
+    sections.sames = h4Same;
+    container.append(h4Same);
+    for (const m of sames) container.append(sameRow(m));
+  };
   if (!fills.length && !conflicts.length && !datePicks.length) {
     if (unknown.length >= 3) {
       await modal('本页核对结果', ({ body, foot, finish }) => {
         body.append(coverageRich());
         body.append(manualWarn());
+        sameSection(body);
         const h4 = h('h4', { class: 'fill-section-title t-unknown', text: `无法自动填写的输入框（${unknown.length} 个，点击可在网页上定位）` });
         sections.unknown = h4;
         body.append(h4);
@@ -491,6 +510,7 @@ async function fillEmpties() {
         rows.push({ cb, m, isConflict: true, valueEl: row.querySelector('.fill-editable'), shown: shorten(m.field.value) });
       }
     }
+    sameSection(body);
     if (unknown.length) {
       const h4 = h('h4', { class: 'fill-section-title t-unknown', text: `未识别的空框（${unknown.length} 个，点击可在网页上定位）` });
       sections.unknown = h4;
