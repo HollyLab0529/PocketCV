@@ -33,6 +33,11 @@
     return el;
   };
 
+  // 自定义下拉（点击弹出选项面板的仿输入框）：写入文本只是改显示，网站不会记录；需要模拟点击选项
+  const isPickerEl = (el) => el instanceof HTMLInputElement
+    && (/^(请)?(点击|点此)?选择/.test(el.getAttribute('placeholder') || '')
+      || (el.readOnly && /选择/.test(el.getAttribute('placeholder') || el.getAttribute('title') || '')));
+
   const labelOf = (el) => {
     const parts = [];
     if (el.labels?.length) for (const l of el.labels) parts.push(l.textContent || '');
@@ -52,7 +57,7 @@
 
   const pick = (el) => {
     el = rootEditable(el);
-    if (el && editable(el)) current = { el, token: token() };
+    if (el && (editable(el) || isPickerEl(el))) current = { el, token: token() };
     else current = null;
     report();
   };
@@ -121,8 +126,14 @@
   async function write(tokenValue, content) {
     if (!current || current.token !== tokenValue) throw new Error('目标输入框已变化，请在网页重新点选。');
     const el = current.el;
-    if (!editable(el) || rootEditable(activeEl()) !== el) throw new Error('输入框已失效或焦点已移开，请重新点选。');
-    const result = await writeEl(el, content);
+    if (!editable(el) && !isPickerEl(el) || rootEditable(activeEl()) !== el && !isPickerEl(el)) throw new Error('输入框已失效或焦点已移开，请重新点选。');
+    let result;
+    if (isPickerEl(el)) {
+      const r = await pickFill(el, content);
+      undoState = { el, before: r.before, after: r.after, picker: true };
+      return { label: r.label, characters: r.characters };
+    }
+    result = await writeEl(el, content);
     undoState = { el, before: result.before, nodes: result.nodes, selection: result.selection, after: result.after };
     return { label: result.label, characters: result.characters };
   }
@@ -133,7 +144,8 @@
 
   const deepInputs = (root, out) => {
     for (const el of root.querySelectorAll('input, textarea, select, [contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]')) {
-      if (editable(el)) out.push(el);
+      // 文件上传框不走 editable（不可文本写入），单独收进扫描清单走附件上传通道
+      if (editable(el) || (el instanceof HTMLInputElement && el.type === 'file' && !el.disabled)) out.push(el);
     }
     for (const host of root.querySelectorAll('*')) {
       if (host.shadowRoot) deepInputs(host.shadowRoot, out);
@@ -159,13 +171,24 @@
     const all = [];
     deepInputs(document, all);
     scanList = all.filter((el) => {
-      if (el instanceof HTMLInputElement && ['file', 'password', 'checkbox', 'radio', 'search'].includes(el.type)) return false;
+      if (el instanceof HTMLInputElement && el.type === 'file') return true;   // 附件/照片上传框，走专用上传通道
+      if (el instanceof HTMLInputElement && ['password', 'checkbox', 'radio', 'search'].includes(el.type)) return false;
       // 页头/导航里的输入框（全站搜索框等）不是表单字段，匹配上去只会误导
       if (el.closest('nav, header, [role="banner"], [role="search"]')) return false;
       if (el instanceof HTMLSelectElement) return el.options.length > 1;   // 只有一个 option 的 select 通常是占位
       return true;
     });
     return scanList.slice(0, 120).map((el, index) => {
+      if (el instanceof HTMLInputElement && el.type === 'file') {
+        return {
+          index,
+          value: el.files.length ? Array.from(el.files).map((f) => f.name).join(', ') : '',
+          picker: false,
+          label: nearbyText(el) ? nearbyText(el) + '｜' + labelOf(el) : labelOf(el),
+          kind: 'file',
+          inputType: 'file',
+        };
+      }
       let value = '';
       if (el instanceof HTMLSelectElement) {
         const opt = el.options[el.selectedIndex < 0 ? 0 : el.selectedIndex];
@@ -173,18 +196,90 @@
       } else {
         value = nativeValue(el).trim();
       }
-      // 自定义下拉（点击弹出选项面板的仿输入框）：写入文本只是改了显示，网站不会记录，自动填是假成功
-      const picker = el instanceof HTMLInputElement
-        && /^(请)?(点击|点此)?选择/.test(el.getAttribute('placeholder') || '');
       return {
         index,
         value,
-        picker,
+        picker: isPickerEl(el),
         label: nearbyText(el) ? nearbyText(el) + '｜' + labelOf(el) : labelOf(el),
         kind: el.tagName.toLowerCase(),
         inputType: el.type || 'text',
       };
     });
+  }
+
+  // ===== 自定义下拉自动点选：模拟真实点击展开面板 → 在弹层里找文本匹配的选项点下去 =====
+  const closeMenus = () => {
+    for (const target of [document, document.body]) {
+      target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    }
+  };
+  const visible = (el) => {
+    const style = getComputedStyle(el);
+    return style.display !== 'none' && style.visibility !== 'hidden'
+      && !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+  };
+  const normText = (s) => String(s || '').replace(/\s+/g, '').toLowerCase();
+
+  async function pickFill(el, content) {
+    const want = String(content || '').trim();
+    if (!want) throw new Error('空内容不会写入。');
+    if (!(el instanceof HTMLElement) || !el.isConnected) throw new Error('输入框已失效。');
+    const target = normText(want);
+    const before = el instanceof HTMLInputElement ? el.value : '';
+    // 展开面板：模拟完整点击序列（React/Vue 组件普遍监听 mousedown/click）
+    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+      el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, composed: true, view: window }));
+    }
+    await new Promise((r) => setTimeout(r, 450));
+    // 收集可见、叶子、文本精确相等的候选；选项弹层通常挂在 body 末尾，全文档找
+    const candidates = [];
+    const walk = (root) => {
+      for (const node of root.querySelectorAll('*')) {
+        if (node.shadowRoot) walk(node.shadowRoot);
+        if (node === el || node.contains(el) || el.contains(node)) continue;
+        if (!visible(node)) continue;
+        const text = (node.innerText || node.textContent || '').trim().replace(/\s+/g, ' ');
+        if (!text || text.length > 60 || normText(text) !== target) continue;
+        candidates.push(node);
+      }
+    };
+    walk(document);
+    if (!candidates.length) { closeMenus(); throw new Error('下拉面板里没有找到「' + want + '」这个选项，请手动选择。'); }
+    // 嵌套的同一选项（span 在 li 里）算一个；剩下的独立候选项多于一个视为歧义，宁可不填
+    const options = candidates.filter((c) => !candidates.some((other) => other !== c && c.contains(other)));
+    const unique = options.filter((c, i) => options.findIndex((o) => o.tagName === c.tagName && o.textContent.trim() === c.textContent.trim()) === i);
+    if (unique.length > 1) { closeMenus(); throw new Error('下拉面板匹配到多个「' + want + '」选项，无法确定，请手动选择。'); }
+    unique[0].dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, composed: true, view: window }));
+    unique[0].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, composed: true, view: window }));
+    unique[0].dispatchEvent(new MouseEvent('pointerup', { bubbles: true, cancelable: true, composed: true, view: window }));
+    unique[0].dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, composed: true, view: window }));
+    unique[0].click();
+    await new Promise((r) => setTimeout(r, 450));
+    // 验证：选中值应回填到输入框；验证不过按失败处理，避免假成功
+    const after = el instanceof HTMLInputElement ? el.value : '';
+    if (!normText(after).includes(target)) {
+      closeMenus();
+      throw new Error('已尝试点选「' + want + '」，但网页没有回填选中值，请手动确认该下拉框。');
+    }
+    return { before, after, label: labelOf(el), characters: want.length };
+  }
+
+  // ===== 附件上传：把资料库里存的文件（简历/照片）写进 input[type=file] =====
+  async function fillFile(el, fileData) {
+    if (!(el instanceof HTMLInputElement) || el.type !== 'file') throw new Error('目标不是文件上传框。');
+    if (el.disabled) throw new Error('上传框已禁用。');
+    if (!fileData || typeof fileData.dataUrl !== 'string' || !fileData.dataUrl.startsWith('data:')) throw new Error('文件数据无效。');
+    const res = await fetch(fileData.dataUrl);
+    const buf = await res.arrayBuffer();
+    const file = new File([buf], String(fileData.name || 'file').slice(0, 200), { type: String(fileData.type || 'application/octet-stream').slice(0, 120) });
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    el.files = dt.files;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+    if (!el.files?.length) throw new Error('网页没有接受文件，请手动上传。');
+    return { label: labelOf(el), characters: file.name.length };
   }
 
   async function batchFill(items) {
@@ -195,7 +290,17 @@
       const el = scanList[Number(item.index)];
       if (!el) { results.push({ label: '已失效的输入框', ok: false, error: '页面已变化，请重新扫描。' }); continue; }
       try {
-        const r = await writeEl(el, String(item.value || ''));
+        let r;
+        if (item.kind === 'file') {
+          r = await fillFile(el, item.fileData);
+        } else if (item.kind === 'picker' || (item.kind !== 'file' && isPickerEl(el))) {
+          r = await pickFill(el, String(item.value || ''));
+          undoEntries.push({ index: Number(item.index), label: r.label, before: r.before, after: r.after, picker: true });
+          results.push({ label: r.label, ok: true, characters: r.characters });
+          continue;
+        } else {
+          r = await writeEl(el, String(item.value || ''));
+        }
         undoEntries.push({ index: Number(item.index), label: r.label, before: r.before, nodes: r.nodes, after: r.after });
         results.push({ label: r.label, ok: true, characters: r.characters });
       } catch (e) {
@@ -203,7 +308,8 @@
       }
     }
     if (undoEntries.length) batchUndo = undoEntries;
-    return { results, filled: undoEntries.length, failed: results.length - undoEntries.length };
+    const filled = results.filter((r) => r.ok).length;
+    return { results, filled, failed: results.length - filled };
   }
 
   function undoBatch() {
@@ -213,6 +319,14 @@
     scanPage();   // 网站可能重渲染了输入框（React 类常见），按扫描序号重新定位，不能复用旧元素
     for (const u of batchUndo) {
       const el = scanList[u.index];
+      if (u.picker) {
+        // 自定义下拉撤回是尽力而为：恢复输入框文本并通知网站，状态是否回退取决于网站实现
+        if (!el || !el.isConnected || nativeValue(el).trim() !== String(u.after).trim()) { skipped += 1; continue; }
+        assignValue(el, u.before);
+        fire(el, 'historyUndo');
+        restored += 1;
+        continue;
+      }
       if (!el || !editable(el) || nativeValue(el).trim() !== String(u.after).trim()) { skipped += 1; continue; }   // 已被网站保留/手动改过的不碰
       if (u.nodes) el.replaceChildren(...u.nodes); else assignValue(el, u.before);
       fire(el, 'historyUndo');

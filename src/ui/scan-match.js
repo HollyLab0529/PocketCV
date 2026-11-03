@@ -16,6 +16,7 @@ const SYNONYMS = {
   '个人主页': ['个人网站', '个人网址', '主页链接', 'github', 'gitee'],
   '作品集链接': ['作品集', '作品链接', 'portfolio'],
   '学校': ['毕业院校', '院校', '学校名称', '毕业学校', '就读院校'],
+  '学校名称': ['毕业院校', '院校', '毕业学校', '就读院校'],
   '学院': ['院系', '学院名称', '系'],
   '专业': ['所学专业', '专业名称', '主修专业'],
   '学历': ['最高学历', '学历层次', '学历程度', '教育程度'],
@@ -94,7 +95,8 @@ const GENERIC_HEADS = new Set([
 // 把页面框的 label 拆成候选关键词：取「｜」前后两段分别参与匹配
 const labelParts = (label) => String(label || '').split(/[｜|]/).flatMap((part) => part.split(/[\s/·]+/)).map(norm).filter(Boolean);
 
-export function matchBoxes(boxes, profile) {
+export function matchBoxes(boxes, profile, opts = {}) {
+  // opts.pickers：允许处理自定义下拉框（严格匹配：只点精确/同义词命中项，模糊宁可不填）
   // 同名字段按资料顺序建组：多段经历的「公司名称」等同名框按出现次序逐个消耗，
   // 避免把第一段经历的公司写进所有段。
   const fieldsByLabel = new Map();   // normLabel -> { label, fields: [...] }
@@ -114,7 +116,7 @@ export function matchBoxes(boxes, profile) {
   // 给单个框找字段；pass='high' 只尝试精确/同义词（≥2.5），pass='medium' 只尝试宽容匹配（1.5）。
   // 返回是否命中。
   const assign = (box, pass) => {
-    if (box.picker) return false;   // 自定义下拉写入是假成功，留给用户手动选
+    if (box.picker && !opts.pickers) return false;   // 默认跳过自定义下拉；开启后走下方严格匹配
     const parts = labelParts(box.label);
     const scored = [];
     for (const [nl, group] of fieldsByLabel) {
@@ -125,6 +127,7 @@ export function matchBoxes(boxes, profile) {
         if (part === fl) { score = Math.max(score, 3); break; }
         const syn = SYNONYMS[group.label] || [];
         if (syn.some((s) => norm(s) === part)) { score = Math.max(score, 2.5); break; }
+        if (box.picker) continue;   // 严格模式：picker 只点精确/同义词命中，模糊命中宁可不点
         if ((part.length >= 2 && fl.length >= 2) && (part.includes(fl) || fl.includes(part))) score = Math.max(score, 1.5);
         else if (part.length >= 3 && fl.length >= 3) {
           // 宽容匹配：共享 ≥2 字词根且覆盖较短一方近半，视为同义（预览确认兜底，不怕猜错）
@@ -223,13 +226,17 @@ export function matchDateComponents(boxes, matches, profile) {
     if (m) {
       const e = entryOfField.get(m.field.id);
       if (!e) continue;
-      // 记录锚点：命中记录字段时重置日期上下文
+      // 记录锚点：命中「含日期字段的记录」的字段时才重置日期上下文；
+      // 基本信息等无日期记录的字段不清空 sides，否则日期框前只要出现过手机/邮箱就会整体失效
       const df = (e.fields || []).find((f) => DATE_FIELD.test(f.label) && typeof f.value === 'string' && f.value.trim());
-      sides = df ? parseDateRange(df.value) : null;
-      sourceLabel = df ? df.label : '';
-      cur = 0;
-      seen[0].clear();
-      seen[1].clear();
+      const parsed = df ? parseDateRange(df.value) : null;
+      if (parsed) {
+        sides = parsed;
+        sourceLabel = df.label;
+        cur = 0;
+        seen[0].clear();
+        seen[1].clear();
+      }
       // 被普通匹配器抢占的日期部件框（框名「开始时间」配上了资料「起止时间」整值）→ 还原为日期分框，继续分配本框
       part = labelParts(box.label).find((p) => DATE_PART.test(p));
       if (!(part && DATE_FIELD.test(m.field.label))) continue;

@@ -242,5 +242,28 @@ check('sameValue 空值视为一致', sameValue('', 'x') === true && sameValue('
   check('技能类别框不误配（「技能」「详情」是泛义词头）', byBox['技能类别'] === undefined, JSON.stringify(byBox));
 }
 
+// 20. picker 严格模式：开启 opts.pickers 后精确/同义词命中才点选，模糊宁可不点
+{
+  console.log('[picker 严格模式]');
+  const p = {
+    modules: [{
+      id: 'm', name: '技能', tier: '常用',
+      entries: [{ id: 'e', title: '技能清单', fields: [field('p1', '掌握程度', '熟练'), field('p2', '期望城市', '北京')] }],
+    }],
+  };
+  // 精确命中：开启 pickers 后参与匹配
+  const exact = matchBoxes([box('掌握程度', { picker: true })], p, { pickers: true });
+  check('开启 pickers：精确命中的 picker 框参与匹配', exact.length === 1 && exact[0].field.value === '熟练', JSON.stringify(exact));
+  // 模糊不命中：'期望城市意向' 与 期望城市 是包含关系（1.5 分），严格模式下必须跳过
+  const fuzzy = matchBoxes([box('期望城市意向', { picker: true })], p, { pickers: true });
+  check('开启 pickers：模糊命中的 picker 框仍不点（宁可不填）', fuzzy.length === 0, JSON.stringify(fuzzy));
+  // 默认关闭：不传 opts 时 picker 桓一律不参与
+  const off = matchBoxes([box('掌握程度', { picker: true })], p);
+  check('默认不开启 pickers：picker 框不参与匹配', off.length === 0, JSON.stringify(off));
+  // 同义词命中：'熟练程度' → 掌握程度（2.5 分）允许点选
+  const syn = matchBoxes([box('熟练程度', { picker: true })], p, { pickers: true });
+  check('开启 pickers：同义词命中的 picker 框参与匹配', syn.length === 1 && syn[0].field.label === '掌握程度', JSON.stringify(syn));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

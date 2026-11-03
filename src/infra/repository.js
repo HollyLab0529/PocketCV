@@ -21,6 +21,8 @@ export function createRepository() {
       history: () => message('HISTORY'),
       erase: () => message('ERASE'),
       replaceAll: (profile, checkpoint) => message('REPLACE', { profile, checkpoint }),
+      filesLoad: () => message('FILES_LOAD'),
+      filesSave: (files) => message('FILES_SAVE', { files }),
       subscribe(fn) {
         const listener = (changes, area) => {
           if (area === 'local' && changes['pocketcv.profile.v1']?.newValue) fn(changes['pocketcv.profile.v1'].newValue);
@@ -38,6 +40,8 @@ export function createRepository() {
   return import('./storage-core.js').then(({ createStore }) => ({
     mode: 'standalone',
     ...createStore(driver),
+    filesLoad: async () => JSON.parse(localStorage.getItem('pocketcv.files.v1') || '[]'),
+    filesSave: async (files) => localStorage.setItem('pocketcv.files.v1', JSON.stringify(files || [])),
     subscribe(fn) {
       const listener = (event) => {
         if (event.key === 'pocketcv.profile.v1' && event.newValue) { try { fn(JSON.parse(event.newValue)); } catch { /* 忽略坏数据 */ } }

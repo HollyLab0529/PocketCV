@@ -8,6 +8,8 @@ const contentCalls = [];
 const publishes = [];
 
 const scriptingCalls = [];
+const badgeCalls = [];
+const mem = {};   // 简易存储内存实现：FILES_SAVE 写入后 FILES_LOAD 可读回
 
 // 模拟两个 frame 的 content 脚本：frame 0 有数框（其中 2 个同名框——多段经历的同名字段，不得去重）
 const contentFrames = {
@@ -48,10 +50,12 @@ globalThis.chrome = {
   storage: {
     local: {
       setAccessLevel: async () => {},
-      get: async () => ({}),
-      set: async () => {},
+      get: async (key) => ({ [key]: mem[key] }),
+      set: async (obj) => { Object.assign(mem, obj); },
     },
+    onChanged: { addListener: () => {} },
   },
+  permissions: { contains: async () => false },
   tabs: {
     query: async () => [{ id: TAB_ID, url: 'https://job.example.com/apply' }],
     get: async () => ({ id: TAB_ID, url: 'https://job.example.com/apply' }),
@@ -69,7 +73,11 @@ globalThis.chrome = {
     },
   },
   scripting: { executeScript: async (o) => { scriptingCalls.push(o); } },
-  action: { onClicked: { addListener: () => {} } },
+  action: {
+    onClicked: { addListener: () => {} },
+    setBadgeText: async (o) => { badgeCalls.push({ fn: 'text', ...o }); },
+    setBadgeBackgroundColor: async (o) => { badgeCalls.push({ fn: 'bg', ...o }); },
+  },
   sidePanel: { open: async () => {} },
 };
 
@@ -176,6 +184,38 @@ const check = (name, cond, detail) => {
   console.log('[撤回状态一致性]');
   const res = await send({ type: 'UNDO_BATCH' });
   check('无批量记录 UNDO_BATCH 报错', res.ok === false, JSON.stringify(res));
+}
+
+// 8. FILES_LOAD / FILES_SAVE：附件独立存储路由（默认空、写入后读回、非数组拒绝）
+{
+  console.log('[FILES 路由]');
+  const empty = await send({ type: 'FILES_LOAD' });
+  check('默认无附件返回空数组', empty.ok === true && Array.isArray(empty.data) && empty.data.length === 0, JSON.stringify(empty));
+  const bad = await send({ type: 'FILES_SAVE', files: 'not-array' });
+  check('非数组附件数据被拒绝', bad.ok === false, JSON.stringify(bad));
+  const saved = await send({ type: 'FILES_SAVE', files: [{ id: 'file1', name: '简历.pdf', kind: 'resume', mime: 'application/pdf', dataUrl: 'data:application/pdf;base64,xxx' }] });
+  check('附件写入成功', saved.ok === true, JSON.stringify(saved));
+  const loaded = await send({ type: 'FILES_LOAD' });
+  check('写入后可读回', loaded.ok === true && loaded.data.length === 1 && loaded.data[0].name === '简历.pdf', JSON.stringify(loaded));
+}
+
+// 9. BATCH_FILL 透传 kind/fileData：picker/file 标记原样到达 content 脚本
+{
+  console.log('[kind 透传]');
+  const res = await send({
+    type: 'BATCH_FILL',
+    items: [
+      { frameId: 0, index: 1, value: '本科', kind: 'picker' },
+      { frameId: 0, index: 2, value: '简历.pdf', kind: 'file', fileData: { name: '简历.pdf', mime: 'application/pdf', dataUrl: 'data:application/pdf;base64,xxx' } },
+      { frameId: 0, index: 0, value: '张三' },
+    ],
+  });
+  check('成功返回', res.ok === true, JSON.stringify(res));
+  const last = contentCalls.filter((c) => c.msg.type === 'BATCH_FILL' && c.opts.frameId === 0).pop();
+  const [pickerItem, fileItem, plainItem] = last.msg.items;
+  check('picker 项透传 kind=picker', pickerItem.kind === 'picker', JSON.stringify(pickerItem));
+  check('file 项透传 kind=file 与 fileData', fileItem.kind === 'file' && fileItem.fileData?.name === '简历.pdf', JSON.stringify(fileItem));
+  check('普通项不带 kind 不受影响', plainItem.kind === undefined, JSON.stringify(plainItem));
 }
 
 console.log(`\n结果：${pass} 通过，${fail} 失败`);

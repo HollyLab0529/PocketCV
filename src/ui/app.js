@@ -348,21 +348,42 @@ async function fillEmpties() {
     toast(errorMessage(error), true);
     return;
   }
-  const matches = matchBoxes(boxes, profile);
+  // 三路匹配：普通文本框（含模糊）/ 自定义下拉（严格命中才点选）/ 文件上传框（按类型配对附件）
+  const matches = matchBoxes(boxes.filter((b) => b.kind !== 'file'), profile);
+  // 自定义下拉（仿输入框 picker）：只在精确/同义词命中时参与，模糊宁可不点（点错比不填糟）
+  const pickerPicks = matchBoxes(boxes.filter((b) => b.picker && !b.value), profile, { pickers: true });
+  const pickerSet = new Set(pickerPicks.map((m) => m.box));
+  const fileBoxes = boxes.filter((b) => b.kind === 'file');
+  // 上传框按关键词配对用户上传的附件（简历/照片，管理页维护）
+  let files = [];
+  try { files = await repo.filesLoad(); } catch { files = []; }
+  const fileKindOf = (b) => {
+    const t = String(b.label || '').toLowerCase();
+    if (/照片|头像|证件照|免冠|生活照|正装|一寸|两寸|photo/.test(t)) return 'photo';
+    if (/简历|附件|resume|作品|文件|上传/.test(t)) return 'resume';
+    return '';
+  };
+  const filePicks = fileBoxes.map((b) => {
+    const want = fileKindOf(b);
+    return { box: b, want, file: want ? files.find((f) => f.kind === want) || null : null };
+  });
   // 日期分框（年/月/日 或 年月整体框）：按记录锚点拆「起止时间」，默认不勾选，由用户核对
   // 先算日期分框，再从普通匹配结果中剔除被日期占用的框，避免同一个框重复出现在两个分区
   const datePicks = matchDateComponents(boxes, matches, profile);
   const dateBoxSet = new Set(datePicks.map((p) => p.box));
   // 三类结果：待补齐（空框对上字段）、不一致（已填值与资料值不同）、未识别（没对上字段的空框）
   const matchedBox = new Set(matches.map((m) => m.box));
+  const fileBoxSet = new Set(fileBoxes);
   const fills = matches.filter((m) => !m.box.value && !dateBoxSet.has(m.box));
   const conflicts = matches.filter((m) => !!m.box.value && !sameValue(m.box.value, m.field.value) && !dateBoxSet.has(m.box));
-  const unknown = boxes.filter((b) => !matchedBox.has(b) && !b.value);
+  const unknown = boxes.filter((b) => !matchedBox.has(b) && !pickerSet.has(b) && !fileBoxSet.has(b) && !dateBoxSet.has(b) && !b.value);
   // 已一致：网站已填且与资料一致（含被日期分框占用的空框除外）——sameCount 必须与分区行数同源
   const sames = matches.filter((m) => !dateBoxSet.has(m.box) && !fills.includes(m) && !conflicts.includes(m));
   const sameCount = sames.length;
   const coverage = `本页共 ${boxes.length} 个输入框：可补齐 ${fills.length} · 可纠错 ${conflicts.length} · 需手动 ${unknown.length}`
     + (datePicks.length ? ` · 日期分框 ${datePicks.length}` : '')
+    + (pickerPicks.length ? ` · 下拉点选 ${pickerPicks.length}` : '')
+    + (filePicks.length ? ` · 附件 ${filePicks.filter((p) => p.file).length}/${filePicks.length}` : '')
     + (sameCount ? ` · 已一致 ${sameCount}` : '');
   // 彩色可点击版覆盖汇总：点数字跳到对应分区；绿=可补齐、蓝=日期、橙=可纠错、灰=需手动
   const sections = {};   // anchor name -> h4 元素，供汇总点击滚动
@@ -379,11 +400,16 @@ async function fillEmpties() {
     `本页共 ${boxes.length} 个输入框：`,
     covChip('fills', 'cov-fill', '可补齐', fills.length), ' · ',
     covChip('dates', 'cov-date', '日期分框', datePicks.length), ' · ',
+    covChip('pickers', 'cov-date', '下拉点选', pickerPicks.length), ' · ',
+    covChip('files', 'cov-fill', '附件', filePicks.filter((p) => p.file).length), ' · ',
     covChip('conflicts', 'cov-conflict', '可纠错', conflicts.length), ' · ',
     covChip('unknown', 'cov-manual', '需手动', unknown.length), ' · ',
     covChip('sames', 'cov-same', '已一致', sameCount));
   // 多个空框无法自动填时，明确提醒用户（日期分框、自定义下拉、资料里没有的项），避免误以为已填完
   const manualWarn = () => h('p', { class: 'fill-warn', text: `⚠️ 本页有 ${unknown.length} 个输入框无法自动填（日期分框、下拉选择、或资料里没有对应项），提交前请逐个手动检查。` });
+  const fileWarn = filePicks.some((p) => !p.file)
+    ? h('p', { class: 'fill-warn', text: `⚠️ 有 ${filePicks.filter((p) => !p.file).length} 个上传框没有匹配到附件，请到管理页「附件管理」上传，或手动上传。` })
+    : null;
   const shorten = (s) => { const t = String(s || '').replace(/\s+/g, ' '); return t.slice(0, 30) + (t.length > 30 ? '…' : ''); };
   // 框名展示：主体取「｜」后真正的输入框名，前文上下文弱化展示，避免把导航文字当框名
   const boxParts = (b) => {
@@ -457,7 +483,7 @@ async function fillEmpties() {
     container.append(h4Same);
     for (const m of sames) container.append(sameRow(m));
   };
-  if (!fills.length && !conflicts.length && !datePicks.length) {
+  if (!fills.length && !conflicts.length && !datePicks.length && !pickerPicks.length && !filePicks.length) {
     if (unknown.length >= 3) {
       await modal('本页核对结果', ({ body, foot, finish }) => {
         body.append(coverageRich());
@@ -480,6 +506,7 @@ async function fillEmpties() {
   const picks = await modal('核对本页表单', ({ body, foot, finish }) => {
     body.append(coverageRich());
     if (unknown.length >= 3) body.append(manualWarn());
+    if (fileWarn) body.append(fileWarn);
     const rows = [];
     // 值可直接点击修改（含日期）：填入以编辑后的为准；未编辑则用原值。
     // 阻止点击/回车冒泡到外层 <label>，否则会反复切换左侧复选框（表现为一闪一闪）。
@@ -550,6 +577,46 @@ async function fillEmpties() {
         rows.push({ cb, m, isConflict: true, valueEl: row.querySelector('.fill-editable'), shown: shorten(m.field.value) });
       }
     }
+    if (pickerPicks.length) {
+      const h4 = h('h4', { class: 'fill-section-title t-date', text: `自定义下拉（${pickerPicks.length} 项，模拟点选精确命中项，填后请核对）` });
+      sections.pickers = h4;
+      body.append(h4);
+      for (const m of pickerPicks) {
+        const cb = h('input', { type: 'checkbox', checked: m.field.sensitive ? undefined : true });
+        const { main, ctx } = boxParts(m.box);
+        const row = h('label', { class: 'check-row fill-empty-row fill-date-row', title: m.box.label },
+          cb,
+          h('span', { class: 'fill-empty-main' },
+            h('b', {}, h('span', { class: 'tag tag-src', text: '资料' }), m.field.label),
+            h('span', { class: 'fill-empty-target' },
+              h('span', { class: 'tag tag-site', text: '下拉框' }), main,
+              ctx ? h('span', { class: 'fill-empty-ctx', text: `　${ctx}` }) : null)),
+          h('span', { class: 'fill-empty-value' },
+            m.field.sensitive ? h('span', { text: '🔒 ' }) : null,
+            h('span', { text: shorten(m.field.value) })));
+        body.append(row);
+        rows.push({ cb, picker: m });
+      }
+    }
+    if (filePicks.length) {
+      const h4 = h('h4', { class: 'fill-section-title t-fill', text: `附件上传（${filePicks.length} 个上传框，上传后不可撤回，请核对）` });
+      sections.files = h4;
+      body.append(h4);
+      for (const p of filePicks) {
+        const cb = h('input', { type: 'checkbox', checked: p.file ? true : undefined, disabled: p.file ? undefined : true });
+        const { main, ctx } = boxParts(p.box);
+        const row = h('label', { class: 'check-row fill-empty-row fill-date-row', title: p.box.label },
+          cb,
+          h('span', { class: 'fill-empty-main' },
+            h('b', {}, h('span', { class: 'tag tag-site', text: '上传框' }), main,
+              ctx ? h('span', { class: 'fill-empty-ctx', text: `　${ctx}` }) : null)),
+          h('span', { class: 'fill-empty-value' },
+            p.file ? h('span', { text: `📎 ${p.file.name}` })
+              : h('span', { class: 'fill-empty-ctx', text: p.want ? `未匹配到${p.want === 'photo' ? '照片' : '简历'}，请到管理页「附件管理」上传` : '未识别上传框类型，请手动上传' })));
+        body.append(row);
+        if (p.file) rows.push({ cb, file: p });
+      }
+    }
     sameSection(body);
     if (unknown.length) {
       const h4 = h('h4', { class: 'fill-section-title t-unknown', text: `未识别的空框（${unknown.length} 个，点击可在网页上定位）` });
@@ -585,7 +652,14 @@ async function fillEmpties() {
     const original = x.date ? x.date.value : x.m.field.value;
     return edited && edited !== x.shown ? edited : original;   // 未编辑时用完整原值（显示可能被截断）
   };
+  const hasFilePick = picks.some((x) => x.file);
   const items = picks.map((x) => {
+    // 下拉点选 / 附件上传：额外携带 kind 标记，由网页桥接脚本分派到 pickFill / fillFile
+    if (x.picker) return { frameId: x.picker.box.frameId, index: x.picker.box.index, value: x.picker.field.value, kind: 'picker' };
+    if (x.file) {
+      const f = x.file.file;
+      return { frameId: x.file.box.frameId, index: x.file.box.index, value: f.name, kind: 'file', fileData: { name: f.name, mime: f.mime, dataUrl: f.dataUrl } };
+    }
     const box = x.date ? x.date.box : x.m.box;
     return { frameId: box.frameId, index: box.index, value: itemValue(x) };
   });
@@ -599,11 +673,84 @@ async function fillEmpties() {
     if (failCount) {
       toast(`写入完成：成功 ${okCount} 项，${failCount} 项失败（${fails[0]?.error || '详见网页'}）${manualNote}。`, true);
     } else {
-      toast(`已更新 ${okCount} 项${manualNote}；点「撤销填写」可整体撤回。`);
+      toast(`已更新 ${okCount} 项${manualNote}；点「撤销填写」可整体撤回${hasFilePick ? '（附件上传不可撤回，提交前请核对）' : ''}。`);
     }
   } catch (error) {
     toast(errorMessage(error), true);
   }
+}
+
+// ===== 附件管理：简历 / 照片存进本机，「一键核对」时自动匹配上传框 =====
+// 附件存独立存储（chrome.storage.local 独立 key / localStorage 独立 key），不占用 2MB 资料限额
+const FILE_LIMIT = { size: 4 * 1024 * 1024, count: 6 };
+const FILE_KINDS = [['resume', '简历'], ['photo', '照片'], ['other', '其他']];
+const readAsDataUrl = (file) => new Promise((resolve, reject) => {
+  const fr = new FileReader();
+  fr.onload = () => resolve(String(fr.result));
+  fr.onerror = () => reject(new Error('读取文件失败。'));
+  fr.readAsDataURL(file);
+});
+async function filesDialog() {
+  let files = [];
+  try { files = await repo.filesLoad(); } catch (e) { toast(errorMessage(e), true); return; }
+  await modal('附件管理（供网页上传框自动填用）', ({ body, foot, finish }) => {
+    body.append(h('p', { class: 'modal-description', text: '上传简历 PDF 与证件照片：网页扫描到上传框时，会按类型自动匹配并上传。最多 6 个、每个 4MB，仅保存在本机。' }));
+    const list = h('div', { class: 'fill-unknown-list' });
+    const redraw = () => {
+      list.replaceChildren();
+      if (!files.length) list.append(h('p', { class: 'modal-description', text: '还没有附件。' }));
+      for (const f of files) {
+        list.append(h('div', { class: 'unknown-row' },
+          h('span', { class: 'unknown-item', text: `${FILE_KINDS.find(([k]) => k === f.kind)?.[1] || '其他'} · ${f.name}` }),
+          h('span', { class: 'spacer' }),
+          button('删除', async (ev) => {
+            files = files.filter((x) => x.id !== f.id);
+            try { await repo.filesSave(files); } catch (e) { toast(errorMessage(e), true); return; }
+            ev.currentTarget.disabled = true;
+            redraw();
+          }, { kind: 'quiet unknown-item', symbol: 'trash', title: '删除该附件' })));
+      }
+    };
+    redraw();
+    body.append(list);
+    const kindSel = h('select', { class: 'input', 'aria-label': '附件类型' },
+      ...FILE_KINDS.map(([v, t]) => h('option', { value: v, text: t })));
+    const fileInput = h('input', { type: 'file' });
+    const addBtn = button('添加附件', async () => {
+      const picked = fileInput.files?.[0];
+      if (!picked) { toast('请先选择要上传的文件。', true); return; }
+      if (picked.size > FILE_LIMIT.size) { toast('文件超过 4MB，请压缩后重试。', true); return; }
+      if (files.length >= FILE_LIMIT.count) { toast(`最多保存 ${FILE_LIMIT.count} 个附件，请先删除不用。`, true); return; }
+      let dataUrl = '';
+      try { dataUrl = await readAsDataUrl(picked); }
+      catch (e) { toast(errorMessage(e), true); return; }
+      files.push({ id: uid('file'), name: picked.name.slice(0, 80), kind: FILE_KINDS.find(([k]) => k === kindSel.value)?.[0] || 'other', mime: picked.type, size: picked.size, dataUrl });
+      try { await repo.filesSave(files); } catch (e) { toast(errorMessage(e), true); return; }
+      fileInput.value = '';
+      redraw();
+      toast(`已保存「${picked.name}」，网页上传框会按类型自动匹配。`);
+    }, { kind: 'accent', symbol: 'upload', title: '读取文件保存到本机（不上传任何服务器）' });
+    foot.append(kindSel, fileInput, addBtn, h('span', { class: 'spacer' }),
+      button('关闭', () => finish(null), { kind: 'quiet' }));
+  });
+}
+
+// ===== 图标角标：显示当前页可自动填写的字段数（需用户授权所有网站访问） =====
+const BADGE_PREF = 'pocketcv.badge';
+async function badgeToggle() {
+  if (!isExtension() || !chrome.storage?.local || !chrome.permissions) { toast('角标功能只在扩展里可用。', true); return; }
+  const current = !!(await chrome.storage.local.get(BADGE_PREF))[BADGE_PREF];
+  if (current) {
+    await chrome.storage.local.set({ [BADGE_PREF]: false });   // 后台监听到变化后自动清理各标签页角标
+    toast('角标计数已关闭。');
+    return;
+  }
+  let granted = false;
+  try { granted = await chrome.permissions.request({ origins: ['<all_urls>'] }); }
+  catch (e) { toast(errorMessage(e), true); return; }
+  if (!granted) { toast('未授予网站访问权限，角标未开启。', true); return; }
+  await chrome.storage.local.set({ [BADGE_PREF]: true });
+  toast('角标计数已开启：图标上会显示当前网页可自动填写的字段数。');
 }
 
 async function fillField(field) {
@@ -997,13 +1144,14 @@ function buildShell() {
           button('AI 按 JD 定制', aiDialog, { kind: 'accent', symbol: 'spark', title: '粘贴职位描述（JD），AI 只基于现有内容改写相关字段' }),
           button('更多', () => moreMenu([
             ['一键核对本页表单', fillEmptiesSafe, 'scan'],
+            ['附件管理', filesDialog, 'upload'],
             ['字体大小', fontDialog, 'type'],
             ['主题 · ' + themeName(), themeDialog, 'settings'],
             ['导出资料 / 空白模板', exportDialog, 'download'],
             ['导入资料文件', importDialog, 'upload'],
             ['本地历史版本', historyDialog, 'history'],
             ['反馈问题 / 建议', openFeedback, 'target'],
-          ]), { kind: 'quiet', symbol: 'menu', title: '字体 / 主题 / 导出 / 导入 / 历史 / 反馈' })));
+          ]), { kind: 'quiet', symbol: 'menu', title: '附件 / 字体 / 主题 / 导出 / 导入 / 历史 / 反馈' })));
 
   navNode = h('nav', { class: 'module-nav', 'aria-label': '资料分类' });
   const navBottom = h('div', { class: 'nav-bottom' },
@@ -1029,6 +1177,8 @@ function buildShell() {
  *  填写模式默认含「清除全部资料」；manager 底栏已常驻同一入口，传入的列表不再重复。 */
 async function moreMenu(actions = [
   ['一键核对本页表单', fillEmptiesSafe, 'scan'],
+  ['附件管理', filesDialog, 'upload'],
+  ['角标计数（显示可填字段数）', badgeToggle, 'check'],
   ['AI 一键识别简历', aiImportDialog, 'scan'],
   ['AI 按 JD 定制', aiDialog, 'spark'],
   ['字体大小', fontDialog, 'type'],

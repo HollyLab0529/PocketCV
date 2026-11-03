@@ -1,6 +1,10 @@
 // 口袋简历 PocketCV · 后台：存储路由、网页连接、填写调度、AI 接口转发
 
 import { createStore } from './src/infra/storage-core.js';
+import { matchBoxes } from './src/ui/scan-match.js';
+
+const FILES_KEY = 'pocketcv.files.v1';   // 附件（简历/照片）独立存储：资料 JSON 限 2MB，不能混存
+const BADGE_KEY = 'pocketcv.badge';    // 图标角标开关（用户在面板里 toggle）
 
 const storageReady = chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
 const store = createStore({
@@ -51,8 +55,61 @@ chrome.action.onClicked.addListener((tab) => {
 
 chrome.runtime.onInstalled.addListener(() => { storageReady.catch(() => {}); });
 chrome.tabs.onRemoved.addListener((id) => { targets.delete(id); undos.delete(id); frames.delete(id); publish(); });
-chrome.tabs.onUpdated.addListener((id, info) => { if (info.status === 'loading') { targets.delete(id); undos.delete(id); frames.delete(id); publish(); } });
-chrome.tabs.onActivated.addListener(() => publish());
+chrome.tabs.onUpdated.addListener((id, info) => {
+  if (info.status === 'loading') {
+    targets.delete(id); undos.delete(id); frames.delete(id); publish();
+    chrome.action.setBadgeText({ tabId: id, text: '' }).catch(() => {});
+  } else if (info.status === 'complete') {
+    refreshBadge(id);
+  }
+});
+chrome.tabs.onActivated.addListener((info) => { publish(); refreshBadge(info.tabId); });
+
+// ===== 图标角标：显示当前页可自动填写的字段数 =====
+// 需要 <all_urls> host 权限（用户在面板手动授权）且开关打开，否则不扫描不打角标。
+const badgeBusy = new Set();   // 同一 tab 刷新中的防抖
+async function badgeEnabled() {
+  const granted = await chrome.permissions.contains({ origins: ['<all_urls>'] }).catch(() => false);
+  if (!granted) return false;
+  return !!(await chrome.storage.local.get(BADGE_KEY))[BADGE_KEY];
+}
+async function refreshBadge(tabId) {
+  if (!tabId || badgeBusy.has(tabId)) return;
+  badgeBusy.add(tabId);
+  try {
+    chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
+    if (!await badgeEnabled()) return;
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab?.id || !/^https?:\/\//.test(tab.url || '')) return;
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['bridge/content.js'] });
+    } catch { return; }   // 注入失败：无该站权限，不打角标不报错
+    const result = await chrome.tabs.sendMessage(tab.id, { type: 'SCAN_PAGE' }, { frameId: 0 }).catch(() => null);
+    if (!result?.ok || !Array.isArray(result.data)) return;
+    const { profile } = await store.load();
+    if (!profile?.modules) return;
+    const boxes = result.data.filter((b) => b.kind !== 'file');   // 文件上传框不算文本可填数
+    const count = matchBoxes(boxes, profile).length;
+    if (count > 0) {
+      chrome.action.setBadgeText({ tabId, text: count > 99 ? '99+' : String(count) }).catch(() => {});
+      chrome.action.setBadgeBackgroundColor({ tabId, color: '#3a7d5c' }).catch(() => {});
+    }
+  } finally {
+    badgeBusy.delete(tabId);
+  }
+}
+// 开关变化时全量同步各 tab 角标
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes[BADGE_KEY]) return;
+  const on = !!changes[BADGE_KEY].newValue;
+  chrome.tabs.query({}).then((tabs) => {
+    for (const t of tabs) {
+      if (t.id === undefined) continue;
+      if (on) refreshBadge(t.id);
+      else chrome.action.setBadgeText({ tabId: t.id, text: '' }).catch(() => {});
+    }
+  }).catch(() => {});
+});
 
 chrome.runtime.onMessage.addListener((request, sender, respond) => {
   if (!request || typeof request.type !== 'string') return false;
@@ -100,6 +157,14 @@ chrome.runtime.onMessage.addListener((request, sender, respond) => {
       case 'REPLACE': return serialize(() => store.replaceAll(request.profile, request.checkpoint));
       case 'HISTORY': return serialize(() => store.history());
       case 'ERASE': return serialize(() => store.erase());
+      case 'FILES_LOAD': {
+        const raw = await chrome.storage.local.get(FILES_KEY);
+        return Array.isArray(raw[FILES_KEY]) ? raw[FILES_KEY] : [];
+      }
+      case 'FILES_SAVE': {
+        if (!Array.isArray(request.files)) throw new Error('附件数据无效。');
+        return serialize(() => chrome.storage.local.set({ [FILES_KEY]: request.files }));
+      }
       case 'AI_CHAT': return aiChat(request);
       case 'CONNECT': return connect();
       case 'STATUS': {
@@ -181,7 +246,8 @@ chrome.runtime.onMessage.addListener((request, sender, respond) => {
         for (const item of items) {
           const frameId = Number.isInteger(item.frameId) ? item.frameId : 0;
           if (!byFrame.has(frameId)) byFrame.set(frameId, []);
-          byFrame.get(frameId).push({ index: item.index, value: item.value });
+          // kind='picker'（自动点选）与 kind='file'+fileData（附件上传）由 content 侧分支处理
+          byFrame.get(frameId).push({ index: item.index, value: item.value, kind: item.kind, fileData: item.fileData });
         }
         const results = [];
         let filled = 0, failed = 0;
