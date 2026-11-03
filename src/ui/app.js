@@ -396,10 +396,49 @@ async function fillEmpties() {
     const { main, ctx } = boxParts(b);
     return ctx ? `${main}（${ctx}）` : (main || '未命名输入框');
   }
-  // 未识别空框：点一下可跳到网页上对应的框（高亮 1.6 秒），方便手动填写
-  const unknownItem = (b) => button(shortenBoxLabel(b), async () => {
-    try { await message('GOTO_BOX', { frameId: b.frameId, index: b.index }); } catch { /* 页面已跳转等场景忽略 */ }
-  }, { kind: 'quiet unknown-item', title: '点击在网页上定位这个输入框' });
+  // 未识别空框：点框名可在网页上定位（高亮 1.6 秒）；「存为字段」把框名补进资料库——
+  // 对齐成熟网申工具的缺失项回填：本页缺的字段一键入库存到命中最多的记录里，填值后下次自动匹配
+  const fullBoxName = (b) => String(b.label || '').split('｜').pop().trim().slice(0, LIMITS.label);
+  const preferredEntry = (p) => {
+    const owner = new Map();   // fieldId -> {m, e}（资料里每个字段的归属记录）
+    for (const m of p.modules) for (const e of m.entries) for (const f of e.fields) owner.set(f.id, { m, e });
+    const hits = new Map();   // entryId -> 本页命中数，新字段存进命中最多的记录（上下文最相关）
+    for (const x of [...fills, ...conflicts, ...sames]) {
+      const o = owner.get(x.m?.field?.id);
+      if (!o) continue;
+      hits.set(o.e.id, (hits.get(o.e.id) || 0) + 1);
+    }
+    let bestId = null, bestN = 0;
+    for (const [k, n] of hits) if (n > bestN) { bestId = k; bestN = n; }
+    if (bestId) return [...owner.values()].find((v) => v.e.id === bestId) || null;
+    const basic = p.modules.find((m) => m.name === '基本信息') || p.modules[0];
+    const e = basic?.entries[0];
+    return e ? { m: basic, e } : null;
+  };
+  const existingLabels = new Set(profile.modules.flatMap((m) => m.entries.flatMap((e) => e.fields.map((f) => f.label.trim()))));
+  const saveUnknownAsField = (b, btn) => {
+    const label = fullBoxName(b);
+    if (!label) { toast('这个框没有可识别的名称，请到管理页手动添加字段。', true); return; }
+    if (existingLabels.has(label)) { toast(`资料里已有「${label}」字段（可能名称写法不同没匹配上），无需重复添加。`, true); return; }
+    const saved = commit((p) => {
+      const target = preferredEntry(p);
+      if (!target) return;
+      const nf = makeField(label, '', 'text');
+      target.e.fields.push(nf);
+    }, '补充缺失字段前');
+    if (!saved) return;
+    existingLabels.add(label);
+    if (btn) { btn.disabled = true; btn.textContent = '已存入'; }
+    toast(`已把「${label}」存进资料，去管理页填上内容，下次核对即可自动填。`);
+  };
+  const unknownItem = (b) => {
+    const label = fullBoxName(b);
+    return h('div', { class: 'unknown-row' },
+      button(shortenBoxLabel(b), async () => {
+        try { await message('GOTO_BOX', { frameId: b.frameId, index: b.index }); } catch { /* 页面已跳转等场景忽略 */ }
+      }, { kind: 'quiet unknown-item', title: '点击在网页上定位这个输入框' }),
+      label ? button('存为字段', (ev) => saveUnknownAsField(b, ev.currentTarget), { kind: 'quiet unknown-item', title: `把「${label}」补进资料库；填好内容后下次核对即可自动填` }) : null);
+  };
   // 已一致行：只读展示（资料值与网站现值一致，不会改动）
   const sameRow = (m) => {
     const { main, ctx } = boxParts(m.box);
