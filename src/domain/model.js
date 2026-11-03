@@ -42,14 +42,17 @@ export function splitSkillField(f) {
   return { level: m[1], detail: f.value.slice(m[0].length).trim() };
 }
 
-// AI 导入兜底：合并写法字段默认拆成 技能名称/掌握程度/技能详情 三段（原字段名作为技能名称的值）；
+// AI 导入兜底：合并写法字段默认拆成 技能名称/掌握程度/技能详情 三段，用 group=技能名 归组成卡片；
 // 不是合并写法返回 null，走普通字段导入
 export function splitImportField(f) {
   const label = String(f?.label || '').trim();
   const parts = splitSkillField(f);
   if (!label || !parts) return null;
-  const out = [{ label, value: label }, { label: '掌握程度', value: parts.level }];
-  if (parts.detail) out.push({ label: '技能详情', value: parts.detail });
+  const out = [
+    { label: '技能名称', value: label, group: label },
+    { label: '掌握程度', value: parts.level, group: label },
+  ];
+  if (parts.detail) out.push({ label: '技能详情', value: parts.detail, group: label });
   return out;
 }
 

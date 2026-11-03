@@ -40,23 +40,23 @@ check('冒号在中间不算前缀 → null', splitSkillField(f('SQL', '日常�
 
 // splitImportField：AI 导入兑底拆分
 console.log('[splitImportField]');
-check('合并写法 → 三段导入', (() => {
+check('合并写法 → 三段导入（标准标签+归组）', (() => {
   const r = splitImportField({ label: 'SQL', value: '熟练：日常开发' });
   return r && r.length === 3
-    && r[0].label === 'SQL' && r[0].value === 'SQL'
-    && r[1].label === '掌握程度' && r[1].value === '熟练'
-    && r[2].label === '技能详情' && r[2].value === '日常开发';
+    && r[0].label === '技能名称' && r[0].value === 'SQL' && r[0].group === 'SQL'
+    && r[1].label === '掌握程度' && r[1].value === '熟练' && r[1].group === 'SQL'
+    && r[2].label === '技能详情' && r[2].value === '日常开发' && r[2].group === 'SQL';
 })());
 check('只有程度 → 两段导入', (() => {
   const r = splitImportField({ label: 'Python', value: '精通：' });
-  return r && r.length === 2 && r[0].value === 'Python' && r[1].value === '精通';
+  return r && r.length === 2 && r[0].value === 'Python' && r[1].value === '精通' && r[0].group === 'Python';
 })());
 check('普通值 → null（走普通导入）', splitImportField({ label: '姓名', value: '张三' }) === null);
 check('空 label → null', splitImportField({ label: '  ', value: '熟练：x' }) === null);
 check('非字符串 value → null', splitImportField({ label: 'SQL' }) === null);
 check('认证前缀 → 证书名 + 认证 + 详情', (() => {
   const r = splitImportField({ label: '帆软 FCP/FCA', value: '认证：商业数据分析（初级）' });
-  return r && r.length === 3 && r[0].value === '帆软 FCP/FCA' && r[1].value === '认证' && r[2].value === '商业数据分析（初级）';
+  return r && r.length === 3 && r[0].value === '帆软 FCP/FCA' && r[0].group === '帆软 FCP/FCA' && r[1].value === '认证' && r[2].value === '商业数据分析（初级）';
 })());
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -644,6 +644,19 @@ function renderFillField(e, f) {
   return row;
 }
 
+/** 技能卡片头：加粗技能名一行，点击填入网站的技能名称框 */
+function renderSkillHead(f) {
+  const row = h('div', { class: 'fill-field skill-head', role: 'button', tabindex: '0',
+    'aria-label': '填入技能名称', title: `点击填入技能名称：${f.value}` },
+    h('span', { class: 'skill-head-name', text: f.value, title: f.value }),
+    h('span', { class: 'fill-actions', on: { click: (ev) => ev.stopPropagation() } },
+      button('', () => aiFieldDialog(f), { kind: 'quiet icon-only', symbol: 'spark', title: 'AI 按 JD 改写技能名称' }),
+      button('', () => copyField(f), { kind: 'quiet icon-only', symbol: 'copy', title: '复制技能名称' })));
+  row.addEventListener('click', () => fillField(f));
+  row.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); fillField(f); } });
+  return row;
+}
+
 /** 首次使用 AI 时引导配置；返回配置或 null */
 async function ensureAiConfig(purpose) {
   let config = loadAiConfig();
@@ -858,7 +871,7 @@ function parseAiImport(content) {
         const splitParts = splitImportField({ label: f.label, value: f.value.slice(0, LIMITS.value) });
         if (splitParts) {
           for (const sp of splitParts) {
-            const sf = makeField(sp.label, group, 'text', f.sensitive === true);
+            const sf = makeField(sp.label, sp.group || group, 'text', f.sensitive === true);
             sf.value = sp.value;
             entry.fields.push(sf);
           }
@@ -1131,6 +1144,14 @@ function renderEntry(m, e, index) {
       const gf = e.fields.filter((f) => f.group === group);
       const shown = fillMode && prefs.hideEmpty ? gf.filter((f) => f.value !== '') : gf;
       if (!shown.length) continue;
+      // 技能卡片：技能名称字段渲染成卡片头（加粗技能名，点击填名称框），其余行跟在下面
+      const nameField = fillMode && group ? shown.find((f) => f.label === '技能名称' && f.value.trim()) : null;
+      if (fillMode && nameField) {
+        card.append(renderSkillHead(nameField));
+        const rest = shown.filter((f) => f !== nameField);
+        if (rest.length) card.append(h('div', { class: 'fill-list' }, rest.map((f) => renderFillField(e, f))));
+        continue;
+      }
       if (group) card.append(h('div', { class: 'group-label', text: group }));
       card.append(fillMode
         ? h('div', { class: 'fill-list' }, shown.map((f) => renderFillField(e, f)))
@@ -1321,6 +1342,7 @@ async function splitFieldDialog(entryId, f) {
     ['掌握程度', parts.level],
     ...(parts.detail ? [['技能详情', parts.detail]] : []),
   ];
+  const groupName = f.label;   // 用技能名归组，填写面板里渲染成技能卡片
   const ok = await modal('拆分技能字段', ({ body, foot, finish }) => {
     body.append(h('p', { class: 'modal-description', text: `「${f.label}」把熟练度和详情合并在一个值里，而网站上的技能名称、掌握程度是分开的输入框。拆分后一键核对可分别匹配填入：` }));
     for (const [label, value] of rows) {
@@ -1338,7 +1360,7 @@ async function splitFieldDialog(entryId, f) {
     const idx = entry ? entry.fields.findIndex((x) => x.id === f.id) : -1;
     if (idx < 0) return;
     const created = rows.map(([label, value]) => {
-      const nf = makeField(label, f.group || '', 'text', f.sensitive);
+      const nf = makeField(label, groupName, 'text', f.sensitive);
       nf.value = value;
       return nf;
     });
@@ -1355,7 +1377,7 @@ async function splitAllDialog(entryId) {
     .filter((f) => splitSkillField(f))
     .map((f) => {
       const parts = splitSkillField(f);
-      return { id: f.id, label: f.label, group: f.group || '', sensitive: f.sensitive,
+      return { id: f.id, label: f.label, group: f.label, sensitive: f.sensitive,
         rows: [['技能名称', f.label], ['掌握程度', parts.level], ...(parts.detail ? [['技能详情', parts.detail]] : [])] };
     });
   if (!plan.length) { toast('这条记录里没有「熟练度：详情」合并写法的字段。', true); return; }
@@ -1943,6 +1965,44 @@ async function main() {
       } catch { /* 迁移失败下次加载重试 */ }
     } else {
       prefs[SKILL_SPLIT_PACK] = true;
+      savePrefs();
+    }
+  }
+  // 技能卡片归组迁移：把已拆分的技能三段（技能名称/掌握程度/技能详情）用 group=技能名 归组，
+  // 填写面板按卡片渲染；同时标准化「技能名称」字段标签，让网站的技能名称框能精确匹配
+  // （每份资料只跑一次，标记存 prefs；失败下次加载重试）
+  const SKILL_CARD_PACK = 'skillCardV2';
+  if (result.profile && !prefs[SKILL_CARD_PACK]) {
+    let changed = false;
+    for (const m of profile.modules) {
+      for (const e of m.entries) {
+        for (let i = 0; i < e.fields.length; i++) {
+          const f = e.fields[i];
+          const lvl = e.fields[i + 1], det = e.fields[i + 2];
+          const isNameField = f.label === '技能名称'
+            || (f.value.trim() && f.value.trim() === f.label.trim() && lvl && lvl.label === '掌握程度');
+          if (!isNameField) continue;
+          const g = (f.label === '技能名称' ? f.value : f.label).trim();
+          if (!g) continue;
+          if (f.label !== '技能名称') { f.label = '技能名称'; changed = true; }
+          if (f.value !== g) { f.value = g; changed = true; }
+          if (f.group !== g) { f.group = g; changed = true; }
+          if (lvl && lvl.label === '掌握程度' && lvl.group !== g) { lvl.group = g; changed = true; }
+          if (det && det.label === '技能详情' && det.group !== g) { det.group = g; changed = true; }
+        }
+      }
+    }
+    if (changed) {
+      try {
+        const upgraded = await repo.replaceAll(validateProfile(profile), '技能字段归组');
+        profile = upgraded.profile;
+        revision = profile.revision;
+        epoch = upgraded.epoch;
+        prefs[SKILL_CARD_PACK] = true;
+        savePrefs();
+      } catch { /* 迁移失败下次加载重试 */ }
+    } else {
+      prefs[SKILL_CARD_PACK] = true;
       savePrefs();
     }
   }
