@@ -1911,6 +1911,41 @@ async function main() {
       savePrefs();
     }
   }
+  // 技能合并写法迁移：存量资料里的「熟练：详情」自动拆成 技能名称/掌握程度/技能详情
+  // （每份资料只跑一次，标记存 prefs；拆分幂等，失败时下次加载重试）
+  const SKILL_SPLIT_PACK = 'skillSplitV1';
+  if (result.profile && !prefs[SKILL_SPLIT_PACK]) {
+    let changed = false;
+    for (const m of profile.modules) {
+      for (const e of m.entries) {
+        for (let i = e.fields.length - 1; i >= 0; i--) {
+          const src = e.fields[i];
+          const parts = splitImportField({ label: src.label, value: src.value });
+          if (!parts) continue;
+          const created = parts.map((sp) => {
+            const nf = makeField(sp.label, src.group || '', 'text', src.sensitive);
+            nf.value = sp.value;
+            return nf;
+          });
+          e.fields.splice(i, 1, ...created);
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      try {
+        const upgraded = await repo.replaceAll(validateProfile(profile), '拆分技能合并字段');
+        profile = upgraded.profile;
+        revision = profile.revision;
+        epoch = upgraded.epoch;
+        prefs[SKILL_SPLIT_PACK] = true;
+        savePrefs();
+      } catch { /* 迁移失败下次加载重试 */ }
+    } else {
+      prefs[SKILL_SPLIT_PACK] = true;
+      savePrefs();
+    }
+  }
   render();
   repo.subscribe((state) => {
     if (!state?.profile) return;
