@@ -64,6 +64,7 @@ globalThis.chrome = {
       if (msg.type === 'SCAN_PAGE') return { ok: true, data: frame.scan || [] };
       if (msg.type === 'BATCH_FILL') return { ok: true, data: frame.fill(msg.items) };
       if (msg.type === 'UNDO_BATCH') return { ok: true, data: { restored: frame.restored ?? 0 } };
+      if (msg.type === 'GOTO_BOX') return { ok: true, data: { label: `goto-${opts?.frameId ?? 0}` } };
       return { ok: false, error: 'unknown' };
     },
   },
@@ -149,6 +150,32 @@ const check = (name, cond, detail) => {
   });
   const res = await call({ type: 'SCAN_PAGE' });
   check('外部来源被拒', res.ok === false && res.code === 'FORBIDDEN', JSON.stringify(res));
+}
+
+// 5. GOTO_BOX 路由：按 frameId 寻址，非法 frameId 回落主文档
+{
+  console.log('[GOTO_BOX]');
+  const r1 = await send({ type: 'GOTO_BOX', frameId: 1, index: 0 });
+  check('指定 frameId 路由到 frame1', r1.ok === true && r1.data.label === 'goto-1', JSON.stringify(r1));
+  const r2 = await send({ type: 'GOTO_BOX', index: 0 });
+  check('缺省 frameId 回落主文档 0', r2.ok === true && r2.data.label === 'goto-0', JSON.stringify(r2));
+}
+
+// 6. BATCH_FILL 边界：空列表报错；整个 frame 失联时计入失败而不坍塌
+{
+  console.log('[BATCH_FILL 边界]');
+  const empty = await send({ type: 'BATCH_FILL', items: [] });
+  check('空 items 报错', empty.ok === false, JSON.stringify(empty));
+  const dead = await send({ type: 'BATCH_FILL', items: [{ frameId: 9, index: 0, value: 'x' }] });
+  check('未注册 frame 计为失败不坍塌', dead.ok === true && dead.data.filled === 0 && dead.data.failed === 1
+    && dead.data.results[0].ok === false, JSON.stringify(dead));
+}
+
+// 7. 无批量记录时直接撤回报错（面板与后台状态不一致时不误报成功）
+{
+  console.log('[撤回状态一致性]');
+  const res = await send({ type: 'UNDO_BATCH' });
+  check('无批量记录 UNDO_BATCH 报错', res.ok === false, JSON.stringify(res));
 }
 
 console.log(`\n结果：${pass} 通过，${fail} 失败`);

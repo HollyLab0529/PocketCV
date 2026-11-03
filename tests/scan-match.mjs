@@ -132,5 +132,99 @@ const profile = {
 check('norm 去空白与标点', norm('请 输入：手机号*') === '请输入手机号');
 check('sameValue 空值视为一致', sameValue('', 'x') === true && sameValue('a', 'a') === true && sameValue('a', 'b') === false);
 
+// 11. 连字符年月范围：不许把一段日期拆成多段（真实资料常见「2023-06 ~ 2024-03」写法）
+{
+  console.log('[连字符年月解析]');
+  const a = parseDateRange('2023-06 ~ 2024-03');
+  check('波浪号 + 连字符年月', a.length === 2 && a[0].year === '2023' && a[0].month === '06' && a[1].year === '2024' && a[1].month === '03', JSON.stringify(a));
+  const b = parseDateRange('2023-06 至 2024-03');
+  check('「至」+ 连字符年月', b.length === 2 && b[0].month === '06' && b[1].month === '03', JSON.stringify(b));
+  const c = parseDateRange('2023-2024');
+  check('纯年份段不误拆', c.length === 2 && c[0].year === '2023' && c[1].year === '2024', JSON.stringify(c));
+  const d = parseDateRange('2023.06-至今');
+  check('「至今」侧被过滤（不产生结束建议）', d.length === 1 && d[0].year === '2023', JSON.stringify(d));
+}
+
+// 12. 宽容匹配去重：多个模糊框对多条同名记录各取一条，不重复填第一条
+{
+  console.log('[宽容匹配去重]');
+  const p = { modules: [{ id: 'm', name: 'x', tier: '常用', entries: [{ id: 'e', title: 't', fields: [field('a', '证书', '证书一'), field('b', '证书', '证书二')] }] }] };
+  const ms = matchBoxes([box('技能证书'), box('其他证书')], p);
+  const vals = ms.map((m) => m.field.value);
+  check('两个模糊框各取一条记录', vals.join(',') === '证书一,证书二', JSON.stringify(vals));
+}
+
+// 13. 高置信优先：模糊框在 DOM 前面也不能抢走高置信框该用的字段
+{
+  console.log('[高置信优先于模糊]');
+  const p = { modules: [{ id: 'm', name: 'x', tier: '常用', entries: [{ id: 'e', title: 't', fields: [field('a', '证书', '证书一'), field('b', '证书', '证书二')] }] }] };
+  const ms = matchBoxes([box('技能证书'), box('证书名称')], p);
+  const byBox = Object.fromEntries(ms.map((m) => [m.box.label, m.field.value]));
+  check('同义词框拿到第一条', byBox['证书名称'] === '证书一', JSON.stringify(byBox));
+  check('模糊框补位到第二条', byBox['技能证书'] === '证书二', JSON.stringify(byBox));
+}
+
+// 14. 确认邮箱式回退：资料只有一条时，模糊框仍允许重复填同一值（确认邮箱=邮箱）
+{
+  console.log('[确认邮箱式回退]');
+  const p = { modules: [{ id: 'm', name: 'x', tier: '常用', entries: [{ id: 'e', title: 't', fields: [field('a', '邮箱', 'a@x.com')] }] }] };
+  const ms = matchBoxes([box('确认邮箱'), box('电子邮箱')], p);
+  check('单字段组两个框都填同一值', ms.length === 2 && ms.every((m) => m.field.value === 'a@x.com'), JSON.stringify(ms.map((m) => [m.box.label, m.field.value])));
+}
+
+// 15. 上下文标签优先：紧急联系人姓名不会错配到姓名（labelParts 两段各自参评，取更高分）
+{
+  console.log('[上下文标签优先]');
+  const p = { modules: [{ id: 'm', name: 'x', tier: '常用', entries: [{ id: 'e', title: 't', fields: [field('a', '姓名', '徐笑晗'), field('b', '紧急联系人', '张三')] }] }] };
+  const ms = matchBoxes([box('紧急联系人姓名｜emergencyName'), box('姓名')], p);
+  const byBox = Object.fromEntries(ms.map((m) => [m.box.label, m.field.label]));
+  check('紧急联系人姓名 → 紧急联系人字段', byBox['紧急联系人姓名｜emergencyName'] === '紧急联系人', JSON.stringify(byBox));
+  check('姓名 → 姓名字段', byBox['姓名'] === '姓名', JSON.stringify(byBox));
+}
+
+// 16. 日期分框连排布局（年年月月）与方向词（开始年份/结束年份）
+{
+  console.log('[连排布局与方向词]');
+  const profile = {
+    modules: [{ id: 'm', name: '实习', tier: '常用', entries: [{ id: 'e1', title: 't', fields: [field('j1', '单位名称', '美团'), field('j2', '起止时间', '2023.06 – 2024.03')] }] }],
+  };
+  const boxes1 = [box('单位名称'), box('年'), box('年'), box('月'), box('月')];
+  const dates1 = matchDateComponents(boxes1, matchBoxes(boxes1, profile), profile);
+  check('连排布局按 开始,开始,结束,结束 对应', dates1.map((d) => d.value).join(',') === '2023,2024,06,03', JSON.stringify(dates1.map((d) => d.value)));
+  const boxes2 = [box('单位名称'), box('开始年份'), box('结束年份')];
+  const dates2 = matchDateComponents(boxes2, matchBoxes(boxes2, profile), profile);
+  check('方向词直接定轮', dates2.map((d) => d.value).join(',') === '2023,2024', JSON.stringify(dates2.map((d) => d.value)));
+}
+
+// 17. 两段经历锚点切换：第二组日期分框对应第二段记录的起止时间
+{
+  console.log('[多段经历锚点切换]');
+  const profile = {
+    modules: [{
+      id: 'm', name: '教育', tier: '常用',
+      entries: [
+        { id: 'e1', title: '本科', fields: [field('s1', '学校', '甲大学'), field('s2', '起止时间', '2020.09 – 2024.06')] },
+        { id: 'e2', title: '硕士', fields: [field('s3', '学校', '乙大学'), field('s4', '起止时间', '2024.09 – 2027.06')] },
+      ],
+    }],
+  };
+  const boxes = [box('学校'), box('年'), box('月'), box('年'), box('月'), box('学校'), box('年'), box('月'), box('年'), box('月')];
+  const dates = matchDateComponents(boxes, matchBoxes(boxes, profile), profile);
+  check('8 个日期框全部给出建议', dates.length === 8, JSON.stringify(dates.map((d) => d.value)));
+  check('第一段 2020/09/2024/06', dates.slice(0, 4).map((d) => d.value).join(',') === '2020,09,2024,06', JSON.stringify(dates.map((d) => d.value)));
+  check('第二段切锚 2024/09/2027/06', dates.slice(4).map((d) => d.value).join(',') === '2024,09,2027,06', JSON.stringify(dates.map((d) => d.value)));
+}
+
+// 18. 「至今」结束侧：结束框不产生自动建议（避免把「今」字填进日期框）
+{
+  console.log('[至今结束侧]');
+  const profile = {
+    modules: [{ id: 'm', name: '实习', tier: '常用', entries: [{ id: 'e1', title: 't', fields: [field('j1', '单位名称', '美团'), field('j2', '起止时间', '2023.06-至今')] }] }],
+  };
+  const boxes = [box('单位名称'), box('年'), box('月'), box('年')];
+  const dates = matchDateComponents(boxes, matchBoxes(boxes, profile), profile);
+  check('只有开始侧 2 个建议，结束年框留空', dates.length === 2 && dates[0].value === '2023' && dates[1].value === '06', JSON.stringify(dates.map((d) => d.value)));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

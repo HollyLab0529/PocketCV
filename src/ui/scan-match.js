@@ -107,9 +107,12 @@ export function matchBoxes(boxes, profile) {
     }
   }
   const used = new Set();   // 高置信命中只允许一个框占用一个字段，避免多框抢同值
+  const mediumUsed = new Set();   // 宽容命中之间的去重标记：不阻塞高置信，只防多个模糊框重复填同一值
   const matches = [];
-  for (const box of boxes) {
-    if (box.picker) continue;   // 自定义下拉写入是假成功，留给用户手动选
+  // 给单个框找字段；pass='high' 只尝试精确/同义词（≥2.5），pass='medium' 只尝试宽容匹配（1.5）。
+  // 返回是否命中。
+  const assign = (box, pass) => {
+    if (box.picker) return false;   // 自定义下拉写入是假成功，留给用户手动选
     const parts = labelParts(box.label);
     const scored = [];
     for (const [nl, group] of fieldsByLabel) {
@@ -132,25 +135,36 @@ export function matchBoxes(boxes, profile) {
       if (score) scored.push({ group, score });
     }
     scored.sort((a, b) => b.score - a.score);
-    // 按置信度从高到低尝试：高置信字段被同名框占用时降级到次高候选（如「获奖清单」被「奖项名称」
+    // 按置信度从高到低尝试：高置信候选被占满时降级到次高候选（如「获奖清单」被「奖项名称」
     // 占用后改对「获奖说明」），而不是整框落空
     for (const cand of scored) {
       if (cand.score < 1.5) break;
       const exclusive = cand.score >= 2.5;
+      if ((pass === 'high') !== exclusive) continue;
       let field = null;
       if (exclusive) {
         // 同名字段按出现次序消耗：第 N 个同名框 → 第 N 条记录的同名字段；用完后降级
         field = cand.group.fields.find((f) => !used.has(f.id)) || null;
         if (field) used.add(field.id);
       } else {
-        field = cand.group.fields[0];
+        // medium 不标记 used（高置信命中优先按序消耗）；但多个宽容命中框之间用 mediumUsed
+        // 去重，避免多段经历重复填第一条的值。单字段组例外：保留「确认邮箱」式重复填充。
+        field = cand.group.fields.find((f) => !used.has(f.id) && !mediumUsed.has(f.id))
+          || (cand.group.fields.length === 1 ? cand.group.fields[0] : null);
+        if (field) mediumUsed.add(field.id);
       }
       if (field) {
-        matches.push({ box, field, confidence: cand.score >= 2.5 ? 'high' : 'medium' });
-        break;
+        matches.push({ box, field, confidence: exclusive ? 'high' : 'medium' });
+        return true;
       }
     }
-  }
+    return false;
+  };
+  // 两轮分配：先让精确/同义词框按 DOM 顺序消耗字段，模糊框再补位——
+  // 否则 DOM 里靠前的模糊框会抢走后面高置信框该用的字段。
+  for (const box of boxes) assign(box, 'high');
+  const taken = new Set(matches.map((m) => m.box));
+  for (const box of boxes) if (!taken.has(box)) assign(box, 'medium');
   return matches.sort((a, b) => (a.confidence === b.confidence ? 0 : a.confidence === 'high' ? -1 : 1));
 }
 
@@ -162,9 +176,12 @@ const DATE_PART = /^(?:开始|结束)?(?:年|月|日|年份|月份|年月)$/;
 const DATE_FIELD = /起止|时间段|在校|任职|期间|起止时间|时间/;
 const DATE_EXCLUDE = /出生|生日|身份证|证件/;
 
-// 解析「2023.06 – 2024.03」「2023年6月-2024年3月」「2023/06~2024/03」等写法
+// 解析「2023.06 – 2024.03」「2023年6月-2024年3月」「2023/06~2024/03」「2023-06 至 2024-03」等写法。
+// 注意：先把「年-月」型连字符归一成点分（如 2023-06 → 2023.06），否则范围分隔符
+// 会把一段日期拆成多段；纯年份段（2023-2024）不受影响，无数字的侧（如「至今」）被过滤。
 export function parseDateRange(text) {
-  const halves = String(text).split(/\s*[–—~～\-]+\s*|\s*至\s*|\s*到\s*/).filter(Boolean);
+  const s = String(text).replace(/(\d{4})\s*-\s*(?=\d{1,2}(?!\d))/g, '$1.');
+  const halves = s.split(/\s*[–—~～\-]+\s*|\s*至\s*|\s*到\s*/).filter((h) => /\d/.test(h));
   const parseSide = (raw) => {
     const nums = raw.match(/\d+/g) || [];
     const year = nums.find((n) => n.length === 4) || '';

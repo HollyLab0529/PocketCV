@@ -358,8 +358,9 @@ async function fillEmpties() {
   const fills = matches.filter((m) => !m.box.value && !dateBoxSet.has(m.box));
   const conflicts = matches.filter((m) => !!m.box.value && !sameValue(m.box.value, m.field.value) && !dateBoxSet.has(m.box));
   const unknown = boxes.filter((b) => !matchedBox.has(b) && !b.value);
-  const sameCount = matches.length - fills.length - conflicts.length
-    - datePicks.filter((p) => matchedBox.has(p.box)).length;
+  // 已一致：网站已填且与资料一致（含被日期分框占用的空框除外）——sameCount 必须与分区行数同源
+  const sames = matches.filter((m) => !dateBoxSet.has(m.box) && !fills.includes(m) && !conflicts.includes(m));
+  const sameCount = sames.length;
   const coverage = `本页共 ${boxes.length} 个输入框：可补齐 ${fills.length} · 可纠错 ${conflicts.length} · 需手动 ${unknown.length}`
     + (datePicks.length ? ` · 日期分框 ${datePicks.length}` : '')
     + (sameCount ? ` · 已一致 ${sameCount}` : '');
