@@ -1,6 +1,6 @@
 // 口袋简历 PocketCV · 应用入口
 // 第 2 期：分类分层导航 + 记录/字段完整管理 + 全局搜索 + 敏感遮挡 + 主题切换
-import { validateProfile, stats, starterProfile, templateProfile, makeModule, makeEntry, makeField, getEntry, clone, emptyProfile, LIMITS, TIERS, TYPES, TYPE_NAMES, moveItem, summary, searchable, mask, uid, splitSkillField } from '../domain/model.js';
+import { validateProfile, stats, starterProfile, templateProfile, makeModule, makeEntry, makeField, getEntry, clone, emptyProfile, LIMITS, TIERS, TYPES, TYPE_NAMES, moveItem, summary, searchable, mask, uid, splitSkillField, splitImportField } from '../domain/model.js';
 import { createRepository, isExtension, message } from '../infra/repository.js';
 import { encryptProfile, decryptProfile } from '../infra/vault.js';
 import { exportProfileWorkbook, importProfileWorkbook } from '../infra/xlsx.js';
@@ -769,9 +769,10 @@ async function aiImportDialog() {
         '你是简历信息抽取助手。从用户粘贴的简历原文中抽取结构化求职资料：',
         '1. 只提取原文中明确出现的事实，严禁编造、推测或改写；原文没有的信息省略该字段。',
         '2. 按内容组织分类 name（常用：求职意向/基本信息/教育经历/实习经历/项目经历/校园经历/专业技能/获奖荣誉/自我评价/其他资料），每条记录有 title（如公司·岗位、学校）。',
-        '3. 字段 type 只能取：text/multiline/date/month/email/tel/url/number；身份证号、手机号等设 sensitive 为 true。',
-        '4. value 保持原文表述，多行内容用 \\n 分隔，每条不超过 500 字。',
-        '5. 输出严格 JSON，不要解释、不要代码块：',
+        '3. 专业技能禁止写「熟练：xxx」合并值：每个技能拆成字段——「技能名称」（值为技能名，如 SQL）、「掌握程度」（值为 熟练/精通/熟悉/了解 等单词）、「技能详情」（具体说明，没有可省略）；证书/认证同理：技能名称为证书名、掌握程度为 认证 或 证书、技能详情为颁发机构/等级。',
+        '4. 字段 type 只能取：text/multiline/date/month/email/tel/url/number；身份证号、手机号等设 sensitive 为 true。',
+        '5. value 保持原文表述，多行内容用 \\n 分隔，每条不超过 500 字。',
+        '6. 输出严格 JSON，不要解释、不要代码块：',
         '{"modules":[{"name":"分类名","tier":"常用","entries":[{"title":"记录名","fields":[{"label":"字段名","value":"内容","type":"text","sensitive":false}]}]}]}',
       ].join('\n');
       let reply;
@@ -852,7 +853,18 @@ function parseAiImport(content) {
       for (const f of fields) {
         if (!f || typeof f.label !== 'string' || !f.label.trim()) continue;
         if (typeof f.value !== 'string' || !f.value.trim()) continue;   // 空值字段没有导入意义
-        const field = makeField(f.label.trim().slice(0, LIMITS.label), typeof f.group === 'string' ? f.group.slice(0, LIMITS.label) : '',
+        const group = typeof f.group === 'string' ? f.group.slice(0, LIMITS.label) : '';
+        // 兜底：AI 仍返回「熟练：xxx」合并写法时，导入时自动拆成 技能名称/掌握程度/技能详情
+        const splitParts = splitImportField({ label: f.label, value: f.value.slice(0, LIMITS.value) });
+        if (splitParts) {
+          for (const sp of splitParts) {
+            const sf = makeField(sp.label, group, 'text', f.sensitive === true);
+            sf.value = sp.value;
+            entry.fields.push(sf);
+          }
+          continue;
+        }
+        const field = makeField(f.label.trim().slice(0, LIMITS.label), group,
           TYPES.includes(f.type) ? f.type : 'text', f.sensitive === true);
         field.value = f.value.slice(0, LIMITS.value);
         entry.fields.push(field);

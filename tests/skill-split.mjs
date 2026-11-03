@@ -1,5 +1,5 @@
-// splitSkillField 技能字段合并写法检测测试（Node 直跑）
-import { makeField, splitSkillField } from '../src/domain/model.js';
+// splitSkillField / splitImportField 技能字段合并写法检测测试（Node 直跑）
+import { makeField, splitSkillField, splitImportField } from '../src/domain/model.js';
 
 let pass = 0, fail = 0;
 const check = (name, cond, detail) => {
@@ -37,6 +37,27 @@ check('纯值无前缀 → null', splitSkillField(f('SQL', 'SQL 调优经验')) 
 check('只有程度词无冒号 → null', splitSkillField(f('SQL', '熟练')) === null);
 check('空值 → null', splitSkillField(f('SQL', '')) === null);
 check('冒号在中间不算前缀 → null', splitSkillField(f('SQL', '日常熟练：使用')) === null);
+
+// splitImportField：AI 导入兑底拆分
+console.log('[splitImportField]');
+check('合并写法 → 三段导入', (() => {
+  const r = splitImportField({ label: 'SQL', value: '熟练：日常开发' });
+  return r && r.length === 3
+    && r[0].label === 'SQL' && r[0].value === 'SQL'
+    && r[1].label === '掌握程度' && r[1].value === '熟练'
+    && r[2].label === '技能详情' && r[2].value === '日常开发';
+})());
+check('只有程度 → 两段导入', (() => {
+  const r = splitImportField({ label: 'Python', value: '精通：' });
+  return r && r.length === 2 && r[0].value === 'Python' && r[1].value === '精通';
+})());
+check('普通值 → null（走普通导入）', splitImportField({ label: '姓名', value: '张三' }) === null);
+check('空 label → null', splitImportField({ label: '  ', value: '熟练：x' }) === null);
+check('非字符串 value → null', splitImportField({ label: 'SQL' }) === null);
+check('认证前缀 → 证书名 + 认证 + 详情', (() => {
+  const r = splitImportField({ label: '帆软 FCP/FCA', value: '认证：商业数据分析（初级）' });
+  return r && r.length === 3 && r[0].value === '帆软 FCP/FCA' && r[1].value === '认证' && r[2].value === '商业数据分析（初级）';
+})());
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

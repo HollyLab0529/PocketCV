@@ -42,6 +42,17 @@ export function splitSkillField(f) {
   return { level: m[1], detail: f.value.slice(m[0].length).trim() };
 }
 
+// AI 导入兜底：合并写法字段默认拆成 技能名称/掌握程度/技能详情 三段（原字段名作为技能名称的值）；
+// 不是合并写法返回 null，走普通字段导入
+export function splitImportField(f) {
+  const label = String(f?.label || '').trim();
+  const parts = splitSkillField(f);
+  if (!label || !parts) return null;
+  const out = [{ label, value: label }, { label: '掌握程度', value: parts.level }];
+  if (parts.detail) out.push({ label: '技能详情', value: parts.detail });
+  return out;
+}
+
 export function emptyProfile() {
   return { version: VERSION, id: uid('p'), name: '我的求职资料', revision: 0, updatedAt: new Date().toISOString(), modules: [] };
 }
