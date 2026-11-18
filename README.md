@@ -75,7 +75,7 @@ node --check background.js bridge/content.js src/ui/app.js   # 语法
 # tests/fill-engine.test.html   填表引擎 15 项
 # tests/background-route.mjs    后台表单核对路由 30 项（node 直接运行）
 # tests/scan-match.mjs          匹配器 46 项（node 直接运行）
-# tests/skill-split.mjs         技能拆分 16 项（node 直接运行）
+# tests/skill-split.mjs         技能拆分与归组自愈 23 项（node 直接运行）
 # tests/mock-form.html          网申表单联调页（解析正确/解析错/未解析/特殊控件四区）
 # tests/xlsx.test.html          Excel 导入导出 17 项
 # tests/period5.test.html       模板与 AI 填表闭环 17 项

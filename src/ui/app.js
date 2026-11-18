@@ -1,6 +1,6 @@
 // 口袋简历 PocketCV · 应用入口
 // 第 2 期：分类分层导航 + 记录/字段完整管理 + 全局搜索 + 敏感遮挡 + 主题切换
-import { validateProfile, stats, starterProfile, templateProfile, makeModule, makeEntry, makeField, getEntry, clone, emptyProfile, LIMITS, TIERS, TYPES, TYPE_NAMES, moveItem, summary, searchable, mask, uid, splitSkillField, splitImportField } from '../domain/model.js';
+import { validateProfile, stats, starterProfile, templateProfile, makeModule, makeEntry, makeField, getEntry, clone, emptyProfile, LIMITS, TIERS, TYPES, TYPE_NAMES, moveItem, summary, searchable, mask, uid, splitSkillField, splitImportField, regroupSkills } from '../domain/model.js';
 import { createRepository, isExtension, message } from '../infra/repository.js';
 import { encryptProfile, decryptProfile } from '../infra/vault.js';
 import { exportProfileWorkbook, importProfileWorkbook } from '../infra/xlsx.js';
@@ -1072,6 +1072,7 @@ function parseAiImport(content) {
     }
     if (mod.entries.length) out.modules.push(mod);
   }
+  regroupSkills(out.modules);   // AI 输出的拆分字段不带 group，导入时直接归组成技能卡片
   return out;
 }
 
@@ -1086,9 +1087,13 @@ function mergeImport(base, parsed) {
       const target = existing.entries.find((x) => x.title === e.title) || existing.entries[0];
       if (!target) { existing.entries.push(e); continue; }
       for (const f of e.fields) {
-        const hit = target.fields.find((x) => x.label === f.label);
+        // 分组字段（技能三段按 group=技能名）按组去重，普通字段按 label 去重——
+        // 否则合并导入时「技能名称」只留下第一个，第二个技能整组丢失
+        const hit = f.group
+          ? target.fields.find((x) => x.group === f.group && x.label === f.label)
+          : target.fields.find((x) => x.label === f.label);
         if (hit) { if (!hit.value.trim()) hit.value = f.value; continue; }
-        if (known.has(f.label)) continue;
+        if (!f.group && known.has(f.label)) continue;
         known.add(f.label);
         target.fields.push(f);
       }
@@ -2157,43 +2162,16 @@ async function main() {
       savePrefs();
     }
   }
-  // 技能卡片归组迁移：把已拆分的技能三段（技能名称/掌握程度/技能详情）用 group=技能名 归组，
-  // 填写面板按卡片渲染；同时标准化「技能名称」字段标签，让网站的技能名称框能精确匹配
-  // （每份资料只跑一次，标记存 prefs；失败下次加载重试）
-  const SKILL_CARD_PACK = 'skillCardV2';
-  if (result.profile && !prefs[SKILL_CARD_PACK]) {
-    let changed = false;
-    for (const m of profile.modules) {
-      for (const e of m.entries) {
-        for (let i = 0; i < e.fields.length; i++) {
-          const f = e.fields[i];
-          const lvl = e.fields[i + 1], det = e.fields[i + 2];
-          const isNameField = f.label === '技能名称'
-            || (f.value.trim() && f.value.trim() === f.label.trim() && lvl && lvl.label === '掌握程度');
-          if (!isNameField) continue;
-          const g = (f.label === '技能名称' ? f.value : f.label).trim();
-          if (!g) continue;
-          if (f.label !== '技能名称') { f.label = '技能名称'; changed = true; }
-          if (f.value !== g) { f.value = g; changed = true; }
-          if (f.group !== g) { f.group = g; changed = true; }
-          if (lvl && lvl.label === '掌握程度' && lvl.group !== g) { lvl.group = g; changed = true; }
-          if (det && det.label === '技能详情' && det.group !== g) { det.group = g; changed = true; }
-        }
-      }
-    }
-    if (changed) {
-      try {
-        const upgraded = await repo.replaceAll(validateProfile(profile), '技能字段归组');
-        profile = upgraded.profile;
-        revision = profile.revision;
-        epoch = upgraded.epoch;
-        prefs[SKILL_CARD_PACK] = true;
-        savePrefs();
-      } catch { /* 迁移失败下次加载重试 */ }
-    } else {
-      prefs[SKILL_CARD_PACK] = true;
-      savePrefs();
-    }
+  // 技能归组自愈（幂等，每次启动都跑）：技能三段（技能名称/掌握程度/技能详情）缺
+  // group=技能名 时补齐，填写面板才能渲染成「技能名卡片头 + 程度/详情行」。
+  // 不用一次性标记：AI 导入、手工录入在标记之后新产生的数据也会缺 group，漏掉就退回普通行
+  if (result.profile && regroupSkills(profile.modules)) {
+    try {
+      const upgraded = await repo.replaceAll(validateProfile(profile), '技能字段归组自愈');
+      profile = upgraded.profile;
+      revision = profile.revision;
+      epoch = upgraded.epoch;
+    } catch { /* 下次加载重试 */ }
   }
   render();
   repo.subscribe((state) => {

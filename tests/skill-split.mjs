@@ -1,5 +1,5 @@
 // splitSkillField / splitImportField 技能字段合并写法检测测试（Node 直跑）
-import { makeField, splitSkillField, splitImportField } from '../src/domain/model.js';
+import { makeField, splitSkillField, splitImportField, regroupSkills } from '../src/domain/model.js';
 
 let pass = 0, fail = 0;
 const check = (name, cond, detail) => {
@@ -57,6 +57,43 @@ check('非字符串 value → null', splitImportField({ label: 'SQL' }) === null
 check('认证前缀 → 证书名 + 认证 + 详情', (() => {
   const r = splitImportField({ label: '帆软 FCP/FCA', value: '认证：商业数据分析（初级）' });
   return r && r.length === 3 && r[0].value === '帆软 FCP/FCA' && r[0].group === '帆软 FCP/FCA' && r[1].value === '认证' && r[2].value === '商业数据分析（初级）';
+})());
+
+// regroupSkills：技能三段缺 group 时幂等归组（填写面板渲染技能卡片的前提）
+console.log('[regroupSkills]');
+const entryOf = (rows) => [{ name: '专业技能', tier: '常用', entries: [{ id: 'e', title: '技能清单', fields: rows.map(([label, value, group = '']) => ({ ...makeField(label, group), value })) }] }];
+const allGroups = (mods) => mods[0].entries[0].fields.map((f) => `${f.label}|${f.group}`);
+{
+  const mods = entryOf([['技能名称', 'SQL'], ['掌握程度', '熟练'], ['技能详情', '日常调优']]);
+  const changed = regroupSkills(mods);
+  check('AI 导入三段无 group → 归组', changed && JSON.stringify(allGroups(mods)) === JSON.stringify(['技能名称|SQL', '掌握程度|SQL', '技能详情|SQL']), JSON.stringify(allGroups(mods)));
+  check('幂等：再跑一遍无改动', regroupSkills(mods) === false);
+}
+check('多技能连排各归各组', (() => {
+  const mods = entryOf([['技能名称', 'SQL'], ['掌握程度', '熟练'], ['技能名称', 'Python'], ['掌握程度', '精通'], ['技能详情', '写过爬虫']]);
+  regroupSkills(mods);
+  const g = allGroups(mods);
+  return g[0] === '技能名称|SQL' && g[1] === '掌握程度|SQL' && g[2] === '技能名称|Python' && g[3] === '掌握程度|Python' && g[4] === '技能详情|Python';
+})());
+check('只有名称+程度两段也归组', (() => {
+  const mods = entryOf([['技能名称', 'Axure'], ['掌握程度', '熟悉']]);
+  regroupSkills(mods);
+  return allGroups(mods).join(',') === '技能名称|Axure,掌握程度|Axure';
+})());
+check('旧格式 label=技能名 → 标准化为技能名称并归组', (() => {
+  const mods = entryOf([['SQL', 'SQL'], ['掌握程度', '熟练']]);
+  regroupSkills(mods);
+  const f = mods[0].entries[0].fields[0];
+  return f.label === '技能名称' && f.value === 'SQL' && f.group === 'SQL' && mods[0].entries[0].fields[1].group === 'SQL';
+})());
+check('普通字段不受影响', (() => {
+  const mods = entryOf([['姓名', '张三'], ['期望岗位', '产品经理']]);
+  return regroupSkills(mods) === false;
+})());
+check('名称后紧跟下一个技能名称 → 不误归', (() => {
+  const mods = entryOf([['技能名称', 'SQL'], ['技能名称', 'Python'], ['掌握程度', '精通']]);
+  regroupSkills(mods);
+  return mods[0].entries[0].fields[1].group === 'Python';
 })());
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -56,6 +56,37 @@ export function splitImportField(f) {
   return out;
 }
 
+// 技能三段归组（幂等自愈）：填写面板按 group=技能名 渲染「技能名卡片头 + 程度/详情行」，
+// 但数据来源多样——AI 按提示词输出的拆分字段不带 group、手工录入/历史数据也可能缺——
+// 缺了就退化成普通字段行。把相邻的 技能名称/掌握程度/技能详情 统一归组，返回是否有改动。
+// 兼容旧格式：label=技能名、value=技能名、后一项是「掌握程度」的字段，先标准化成「技能名称」。
+export function regroupSkills(modules) {
+  const TAIL = new Set(['掌握程度', '技能详情']);
+  let changed = false;
+  for (const m of modules || []) {
+    for (const e of m.entries || []) {
+      const fs = e.fields;
+      for (let i = 0; i < fs.length; i++) {
+        const f = fs[i];
+        let g = '';
+        if (f.label === '技能名称' && f.value.trim()) g = f.value.trim();
+        else if (f.value.trim() && f.value.trim() === f.label.trim() && fs[i + 1] && fs[i + 1].label === '掌握程度') {
+          f.label = '技能名称';
+          g = f.value.trim();
+          changed = true;
+        }
+        if (!g) continue;
+        if (f.group !== g) { f.group = g; changed = true; }
+        for (let k = i + 1; k <= Math.min(i + 2, fs.length - 1); k++) {
+          if (fs[k].label === '技能名称') break;   // 下一个技能开始，不再归入本组
+          if (TAIL.has(fs[k].label) && fs[k].group !== g) { fs[k].group = g; changed = true; }
+        }
+      }
+    }
+  }
+  return changed;
+}
+
 export function emptyProfile() {
   return { version: VERSION, id: uid('p'), name: '我的求职资料', revision: 0, updatedAt: new Date().toISOString(), modules: [] };
 }
