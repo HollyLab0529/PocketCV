@@ -70,12 +70,13 @@ tests/               # 纯浏览器跑的测试页（无需构建）
 ## 测试
 
 ```bash
-node --check background.js bridge/content.js src/ui/app.js   # 语法
+node --check background.js bridge/content.js src/ui/app.js src/domain/model.js src/ui/scan-match.js   # 语法
 # 任一起静态服务后浏览器打开：
 # tests/fill-engine.test.html   填表引擎 15 项
 # tests/background-route.mjs    后台表单核对路由 30 项（node 直接运行）
-# tests/scan-match.mjs          匹配器 46 项（node 直接运行）
-# tests/skill-split.mjs         技能拆分与归组自愈 23 项（node 直接运行）
+# tests/scan-match.mjs          匹配器 53 项（node 直接运行）
+# tests/skill-split.mjs         技能拆分与归组自愈 25 项（node 直接运行）
+# tests/align-pack.mjs           用友对齐迁移 18 项（node 直接运行）
 # tests/mock-form.html          网申表单联调页（解析正确/解析错/未解析/特殊控件四区）
 # tests/xlsx.test.html          Excel 导入导出 17 项
 # tests/period5.test.html       模板与 AI 填表闭环 17 项

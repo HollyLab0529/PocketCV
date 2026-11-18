@@ -128,11 +128,59 @@ const profile = {
   check('单边时间', (() => { const s = parseDateRange('2024.11'); return s.length === 1 && s[0].year === '2024'; })());
 }
 
-// 10. 基础工具函数
+// 10. 拆分后的 开始时间/结束时间 字段也能做日期分框锚点（用友式年/月下拉）
+{
+  console.log('[拆分字段锚点]');
+  const profile = {
+    modules: [{
+      id: 'm', name: '教育', tier: '常用',
+      entries: [{ id: 'e1', title: '教育一', fields: [field('s1', '学校', '天津师范大学'), field('t1', '开始时间', '2023.09'), field('t2', '结束时间', '2027.06')] }],
+    }],
+  };
+  const boxes = [box('学校'), box('年'), box('月'), box('年'), box('月')];
+  const ms = matchBoxes(boxes, profile);
+  const dates = matchDateComponents(boxes, ms, profile);
+  check('拆分字段锚点：4 个日期框都有建议', dates.length === 4, JSON.stringify(dates));
+  check('开始年月 / 结束年月取对侧', dates[0].value === '2023' && dates[1].value === '09' && dates[2].value === '2027' && dates[3].value === '06', JSON.stringify(dates.map((d) => d.value)));
+  check('hint 标明来源字段为开始时间', dates[0].hint.includes('开始时间'), dates[0].hint);
+  const half = {
+    modules: [{
+      id: 'm2', name: '实习', tier: '常用',
+      entries: [{ id: 'e2', title: '实习一', fields: [field('u1', '单位名称', '美团'), field('h1', '开始时间', '2024.03'), field('h2', '结束时间', '')] }],
+    }],
+  };
+  const boxes2 = [box('单位名称'), box('年'), box('月'), box('年'), box('月')];
+  const ms2 = matchBoxes(boxes2, half);
+  const dates2 = matchDateComponents(boxes2, ms2, half);
+  check('结束时间为空 → 只给开始侧建议', dates2.length === 2 && dates2[0].value === '2024' && dates2[1].value === '03', JSON.stringify(dates2));
+}
+
+// 11. 拆分字段的整值框（网站单框「开始时间」文本）走普通精确匹配
+{
+  console.log('[拆分字段整值匹配]');
+  const profile = {
+    modules: [{
+      id: 'm', name: '实习', tier: '常用',
+      entries: [{ id: 'e1', title: '实习一', fields: [field('h1', '开始时间', '2024.03')] }],
+    }],
+  };
+  const ms = matchBoxes([box('开始时间')], profile);
+  check('网站「开始时间」框精确命中拆分字段', ms.length === 1 && ms[0].field.label === '开始时间' && ms[0].confidence === 'high', JSON.stringify(ms));
+  const ms2 = matchBoxes([box('技能类别')], {
+    modules: [{ id: 'm', name: '技能', tier: '常用', entries: [{ id: 'e', title: 't', fields: [field('k1', '技能名称', 'SQL')] }] }],
+  });
+  check('技能类别命中技能名称同义词', ms2.length === 1 && ms2[0].field.label === '技能名称', JSON.stringify(ms2));
+  const ms3 = matchBoxes([box('通信地址')], {
+    modules: [{ id: 'm', name: '基本', tier: '常用', entries: [{ id: 'e', title: 't', fields: [field('a1', '通信地址', '天津市西青区…')] }] }],
+  });
+  check('通信地址精确命中', ms3.length === 1 && ms3[0].field.label === '通信地址', JSON.stringify(ms3));
+}
+
+// 12. 基础工具函数
 check('norm 去空白与标点', norm('请 输入：手机号*') === '请输入手机号');
 check('sameValue 空值视为一致', sameValue('', 'x') === true && sameValue('a', 'a') === true && sameValue('a', 'b') === false);
 
-// 11. 连字符年月范围：不许把一段日期拆成多段（真实资料常见「2023-06 ~ 2024-03」写法）
+// 13. 连字符年月范围：不许把一段日期拆成多段（真实资料常见「2023-06 ~ 2024-03」写法）
 {
   console.log('[连字符年月解析]');
   const a = parseDateRange('2023-06 ~ 2024-03');

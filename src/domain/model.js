@@ -42,7 +42,7 @@ export function splitSkillField(f) {
   return { level: m[1], detail: f.value.slice(m[0].length).trim() };
 }
 
-// AI 导入兜底：合并写法字段默认拆成 技能名称/掌握程度/技能详情 三段，用 group=技能名 归组成卡片；
+// AI 导入兜底：合并写法字段默认拆成 技能名称/掌握程度/使用时间/技能详情 段，用 group=技能名 归组成卡片；
 // 不是合并写法返回 null，走普通字段导入
 export function splitImportField(f) {
   const label = String(f?.label || '').trim();
@@ -51,6 +51,7 @@ export function splitImportField(f) {
   const out = [
     { label: '技能名称', value: label, group: label },
     { label: '掌握程度', value: parts.level, group: label },
+    { label: '使用时间', value: '', group: label },
   ];
   if (parts.detail) out.push({ label: '技能详情', value: parts.detail, group: label });
   return out;
@@ -61,7 +62,7 @@ export function splitImportField(f) {
 // 缺了就退化成普通字段行。把相邻的 技能名称/掌握程度/技能详情 统一归组，返回是否有改动。
 // 兼容旧格式：label=技能名、value=技能名、后一项是「掌握程度」的字段，先标准化成「技能名称」。
 export function regroupSkills(modules) {
-  const TAIL = new Set(['掌握程度', '技能详情']);
+  const TAIL = new Set(['掌握程度', '技能详情', '使用时间']);
   let changed = false;
   for (const m of modules || []) {
     for (const e of m.entries || []) {
@@ -77,7 +78,7 @@ export function regroupSkills(modules) {
         }
         if (!g) continue;
         if (f.group !== g) { f.group = g; changed = true; }
-        for (let k = i + 1; k <= Math.min(i + 2, fs.length - 1); k++) {
+        for (let k = i + 1; k <= Math.min(i + 3, fs.length - 1); k++) {
           if (fs[k].label === '技能名称') break;   // 下一个技能开始，不再归入本组
           if (TAIL.has(fs[k].label) && fs[k].group !== g) { fs[k].group = g; changed = true; }
         }
@@ -103,12 +104,13 @@ export function starterProfile() {
     makeField('求职类型', '', 'text'),
     makeField('到岗时间', '', 'text'),
   ]));
-  // 基本信息（对齐同类插件：证件/民族/户口等网申常见固定字段）
+  // 基本信息（对齐同类插件：证件/民族/户口/婚姻/通信地址等网申常见固定字段）
   const basic = makeModule('基本信息');
   basic.entries.push(makeEntry('基本资料', [
     makeField('姓名', '', 'text'),
     makeField('性别', '', 'text'),
     makeField('出生日期', '', 'date'),
+    makeField('婚姻状况', '', 'text'),
     makeField('证件类型', '', 'text'),
     makeField('证件号码', '', 'text', true),
     makeField('手机', '', 'tel', true),
@@ -116,7 +118,9 @@ export function starterProfile() {
     makeField('民族', '', 'text'),
     makeField('政治面貌', '', 'text'),
     makeField('现居住城市', '', 'text'),
+    makeField('通信地址', '', 'text'),
     makeField('户口所在地', '', 'text'),
+    makeField('是否有海外留学经历', '', 'text'),
     makeField('个人主页', '', 'url'),
     makeField('作品集链接', '', 'url'),
   ]));
@@ -128,20 +132,37 @@ export function starterProfile() {
     makeField('专业', '', 'text'),
     makeField('学历', '', 'text'),
     makeField('学位', '', 'text'),
-    makeField('在校时间', '', 'text'),
+    makeField('开始时间', '', 'month'),
+    makeField('结束时间', '', 'month'),
+    makeField('是否全日制', '', 'text'),
+    makeField('是否统招', '', 'text'),
+    makeField('是否挂科', '', 'text'),
     makeField('绩点', '', 'text'),
     makeField('排名', '', 'text'),
     makeField('英语等级', '', 'text'),
     makeField('英语分数', '', 'text'),
     makeField('主修课程', '', 'multiline'),
   ]));
+  edu.entries.push(makeEntry('第一学历（如与最高学历不同）', [
+    makeField('学校', '', 'text'),
+    makeField('专业', '', 'text'),
+    makeField('学历', '', 'text'),
+    makeField('学位', '', 'text'),
+    makeField('开始时间', '', 'month'),
+    makeField('结束时间', '', 'month'),
+    makeField('是否全日制', '', 'text'),
+    makeField('是否统招', '', 'text'),
+    makeField('是否挂科', '', 'text'),
+  ]));
   // 实习经历
   const intern = makeModule('实习经历');
   intern.entries.push(makeEntry('示例公司 · 岗位', [
     makeField('单位名称', '', 'text'),
     makeField('岗位', '', 'text'),
+    makeField('所在部门', '', 'text'),
     makeField('所在城市', '', 'text'),
-    makeField('起止时间', '', 'text'),
+    makeField('开始时间', '', 'month'),
+    makeField('结束时间', '', 'month'),
     makeField('工作描述', '', 'multiline'),
     makeField('主要成果', '', 'multiline'),
   ]));
@@ -150,8 +171,10 @@ export function starterProfile() {
   proj.entries.push(makeEntry('项目名称', [
     makeField('担任角色', '', 'text'),
     makeField('项目链接', '', 'url'),
-    makeField('起止时间', '', 'text'),
+    makeField('开始时间', '', 'month'),
+    makeField('结束时间', '', 'month'),
     makeField('项目描述', '', 'multiline'),
+    makeField('项目职责', '', 'multiline'),
     makeField('技术栈 / 方法', '', 'text'),
     makeField('成果与数据', '', 'multiline'),
   ]));
@@ -160,7 +183,8 @@ export function starterProfile() {
   campus.entries.push(makeEntry('学生工作 / 社团', [
     makeField('组织名称', '', 'text'),
     makeField('担任角色', '', 'text'),
-    makeField('起止时间', '', 'text'),
+    makeField('开始时间', '', 'month'),
+    makeField('结束时间', '', 'month'),
     makeField('职责与成果', '', 'multiline'),
   ]));
   // 专业技能
@@ -169,8 +193,11 @@ export function starterProfile() {
     makeField('专业技能', '', 'multiline'),
     makeField('办公 / 设计工具', '', 'text'),
     makeField('语言能力', '', 'text'),
-    makeField('证书', '', 'text'),
   ]));
+  // 证书
+  const cert = certModule();
+  // 家庭关系
+  const family = familyModule();
   // 获奖荣誉
   const award = makeModule('获奖荣誉', '扩展');
   award.entries.push(makeEntry('荣誉记录', [
@@ -191,8 +218,119 @@ export function starterProfile() {
     makeField('紧急联系人电话', '', 'tel', true),
     makeField('其他补充', '', 'multiline'),
   ]));
-  p.modules.push(intent, basic, edu, intern, proj, campus, skill, award, self, other);
+  // 工作经历（全职，实习之外的经历）
+  const work = workModule();
+  p.modules.push(intent, basic, edu, intern, proj, campus, skill, cert, family, award, self, work, other);
   return p;
+}
+
+function familyModule() {
+  const m = makeModule('家庭关系');
+  m.entries.push(makeEntry('家庭成员', [
+    makeField('姓名', '', 'text'),
+    makeField('关系', '', 'text'),
+    makeField('工作单位', '', 'text'),
+    makeField('职位', '', 'text'),
+  ]));
+  return m;
+}
+
+function certModule() {
+  const m = makeModule('证书');
+  m.entries.push(makeEntry('证书', [
+    makeField('证书名称', '', 'text'),
+    makeField('获得时间', '', 'month'),
+    makeField('说明', '', 'text'),
+  ]));
+  return m;
+}
+
+function workModule() {
+  const m = makeModule('工作经历', '扩展');
+  m.entries.push(makeEntry('示例公司 · 岗位', [
+    makeField('单位名称', '', 'text'),
+    makeField('岗位', '', 'text'),
+    makeField('所在部门', '', 'text'),
+    makeField('所在城市', '', 'text'),
+    makeField('开始时间', '', 'month'),
+    makeField('结束时间', '', 'month'),
+    makeField('工作描述', '', 'multiline'),
+  ]));
+  return m;
+}
+
+// 用友在线简历对齐迁移（alignPackV1，一次性）：给存量资料补上新增模块/字段、把「在校时间/起止时间」
+// 拆成 开始时间/结束时间、技能卡补「使用时间」。幂等：改动返回 true，已是新版返回 false。
+const TIME_SPLIT_RE = /\s*(?:–|—|~|～|至|到|到|-)\s*/;
+
+export function alignStarterPack(profile) {
+  if (!profile || !Array.isArray(profile.modules)) return false;
+  let changed = false;
+  const mod = (name) => profile.modules.find(m => m.name === name);
+  const fld = (e, label) => e.fields.find(f => f.label === label);
+  const ensureField = (e, label, type, afterLabel) => {
+    if (fld(e, label)) return;
+    const idx = afterLabel && afterLabel.length > 0 ? e.fields.findIndex(f => f.label === afterLabel) : -1;
+    const nf = makeField(label, '', type);
+    if (idx >= 0) e.fields.splice(idx + 1, 0, nf); else e.fields.push(nf);
+    changed = true;
+  };
+  const splitTimeField = (e, oldLabel) => {
+    const old = fld(e, oldLabel);
+    if (!old || fld(e, '开始时间') || fld(e, '结束时间')) return;   // 已拆过或没有可拆的
+    const norm = String(old.value || '').replace(/(\d{4})\s*-\s*(?=\d{1,2}(?!\d))/g, '$1.');
+    const halves = norm.split(TIME_SPLIT_RE).map(s => s.trim()).filter(Boolean);
+    const ok = halves.length >= 2 && /\d/.test(halves[0]) && /\d/.test(halves[1]);
+    const idx = e.fields.indexOf(old);
+    const start = makeField('开始时间', '', 'month');
+    const end = makeField('结束时间', '', 'month');
+    if (ok) { start.value = halves[0]; end.value = halves[1]; e.fields.splice(idx, 1, start, end); }
+    else e.fields.splice(idx, 0, start, end);   // 拆不动：保留原字段，拆分字段留空
+    changed = true;
+  };
+  const basic = mod('基本信息');
+  if (basic) for (const e of basic.entries || []) {
+    ensureField(e, '婚姻状况', 'text', '出生日期');
+    ensureField(e, '通信地址', 'text', '现居住城市');
+    ensureField(e, '是否有海外留学经历', 'text', '户口所在地');
+  }
+  const edu = mod('教育经历');
+  if (edu) for (const e of edu.entries || []) {
+    splitTimeField(e, '在校时间');
+    ensureField(e, '是否全日制', 'text', '结束时间');
+    ensureField(e, '是否统招', 'text', '是否全日制');
+    ensureField(e, '是否挂科', 'text', '是否统招');
+  }
+  const intern = mod('实习经历');
+  if (intern) for (const e of intern.entries || []) {
+    splitTimeField(e, '起止时间');
+    ensureField(e, '所在部门', 'text', '岗位');
+  }
+  const proj = mod('项目经历');
+  if (proj) for (const e of proj.entries || []) {
+    splitTimeField(e, '起止时间');
+    ensureField(e, '项目职责', 'multiline', '项目描述');
+  }
+  const campus = mod('校园经历');
+  if (campus) for (const e of campus.entries || []) splitTimeField(e, '起止时间');
+  const skill = mod('专业技能');
+  if (skill) for (const e of skill.entries || []) {
+    const fs = e.fields;
+    for (let i = 0; i < fs.length; i++) {
+      const f = fs[i];
+      if (f.label !== '技能名称' || !f.group) continue;
+      if (fs.some(x => x.group === f.group && x.label === '使用时间')) continue;
+      const lvlIdx = fs.findIndex(x => x.group === f.group && x.label === '掌握程度');
+      fs.splice(lvlIdx >= 0 ? lvlIdx + 1 : i + 1, 0, makeField('使用时间', f.group, 'text'));
+      changed = true;
+      i++;
+    }
+  }
+  const names = new Set(profile.modules.map(m => m.name));
+  if (!names.has('家庭关系')) { profile.modules.push(familyModule()); changed = true; }
+  if (!names.has('证书')) { profile.modules.push(certModule()); changed = true; }
+  if (!names.has('工作经历')) { profile.modules.push(workModule()); changed = true; }
+  return changed;
 }
 
 /** 下载模板用的推荐结构：分类/记录/字段齐备但内容留空。

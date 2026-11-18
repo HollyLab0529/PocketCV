@@ -1,6 +1,6 @@
 // 口袋简历 PocketCV · 应用入口
 // 第 2 期：分类分层导航 + 记录/字段完整管理 + 全局搜索 + 敏感遮挡 + 主题切换
-import { validateProfile, stats, starterProfile, templateProfile, makeModule, makeEntry, makeField, getEntry, clone, emptyProfile, LIMITS, TIERS, TYPES, TYPE_NAMES, moveItem, summary, searchable, mask, uid, splitSkillField, splitImportField, regroupSkills } from '../domain/model.js';
+import { validateProfile, stats, starterProfile, templateProfile, makeModule, makeEntry, makeField, getEntry, clone, emptyProfile, LIMITS, TIERS, TYPES, TYPE_NAMES, moveItem, summary, searchable, mask, uid, splitSkillField, splitImportField, regroupSkills, alignStarterPack } from '../domain/model.js';
 import { createRepository, isExtension, message } from '../infra/repository.js';
 import { encryptProfile, decryptProfile } from '../infra/vault.js';
 import { exportProfileWorkbook, importProfileWorkbook } from '../infra/xlsx.js';
@@ -968,7 +968,7 @@ async function aiImportDialog() {
         '你是简历信息抽取助手。从用户粘贴的简历原文中抽取结构化求职资料：',
         '1. 只提取原文中明确出现的事实，严禁编造、推测或改写；原文没有的信息省略该字段。',
         '2. 按内容组织分类 name（常用：求职意向/基本信息/教育经历/实习经历/项目经历/校园经历/专业技能/获奖荣誉/自我评价/其他资料），每条记录有 title（如公司·岗位、学校）。',
-        '3. 专业技能禁止写「熟练：xxx」合并值：每个技能拆成字段——「技能名称」（值为技能名，如 SQL）、「掌握程度」（值为 熟练/精通/熟悉/了解 等单词）、「技能详情」（具体说明，没有可省略）；证书/认证同理：技能名称为证书名、掌握程度为 认证 或 证书、技能详情为颁发机构/等级。',
+        '3. 专业技能禁止写「熟练：xxx」合并值：每个技能拆成字段——「技能名称」（值为技能名，如 SQL）、「掌握程度」（值为 熟练/精通/熟悉/了解 等单词）、「使用时间」（如 3年，没有可留空）、「技能详情」（具体说明，没有可省略）；证书/认证同理：技能名称为证书名、掌握程度为 认证 或 证书、技能详情为颁发机构/等级。',
         '4. 字段 type 只能取：text/multiline/date/month/email/tel/url/number；身份证号、手机号等设 sensitive 为 true。',
         '5. value 保持原文表述，多行内容用 \\n 分隔，每条不超过 500 字。',
         '6. 输出严格 JSON，不要解释、不要代码块：',
@@ -2162,7 +2162,26 @@ async function main() {
       savePrefs();
     }
   }
-  // 技能归组自愈（幂等，每次启动都跑）：技能三段（技能名称/掌握程度/技能详情）缺
+  // 用友在线简历对齐迁移（alignPackV1，一次性）：存量资料补新模块（家庭关系/证书/工作经历）、
+  // 新字段（婚姻状况/通信地址/所在部门/项目职责等）、把「在校时间/起止时间」拆成 开始/结束时间、
+  // 技能卡补「使用时间」。幂等，失败时下次加载重试
+  const ALIGN_PACK = 'alignPackV1';
+  if (result.profile && !prefs[ALIGN_PACK]) {
+    if (alignStarterPack(profile)) {
+      try {
+        const upgraded = await repo.replaceAll(validateProfile(profile), '对齐用友在线简历字段');
+        profile = upgraded.profile;
+        revision = profile.revision;
+        epoch = upgraded.epoch;
+        prefs[ALIGN_PACK] = true;
+        savePrefs();
+      } catch { /* 迁移失败下次加载重试 */ }
+    } else {
+      prefs[ALIGN_PACK] = true;
+      savePrefs();
+    }
+  }
+  // 技能归组自愈（幂等，每次启动都跑）：技能四段（技能名称/掌握程度/使用时间/技能详情）缺
   // group=技能名 时补齐，填写面板才能渲染成「技能名卡片头 + 程度/详情行」。
   // 不用一次性标记：AI 导入、手工录入在标记之后新产生的数据也会缺 group，漏掉就退回普通行
   if (result.profile && regroupSkills(profile.modules)) {

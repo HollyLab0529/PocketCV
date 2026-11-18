@@ -40,23 +40,24 @@ check('冒号在中间不算前缀 → null', splitSkillField(f('SQL', '日常�
 
 // splitImportField：AI 导入兑底拆分
 console.log('[splitImportField]');
-check('合并写法 → 三段导入（标准标签+归组）', (() => {
+check('合并写法 → 四段导入（标准标签+归组）', (() => {
   const r = splitImportField({ label: 'SQL', value: '熟练：日常开发' });
-  return r && r.length === 3
+  return r && r.length === 4
     && r[0].label === '技能名称' && r[0].value === 'SQL' && r[0].group === 'SQL'
     && r[1].label === '掌握程度' && r[1].value === '熟练' && r[1].group === 'SQL'
-    && r[2].label === '技能详情' && r[2].value === '日常开发' && r[2].group === 'SQL';
+    && r[2].label === '使用时间' && r[2].value === '' && r[2].group === 'SQL'
+    && r[3].label === '技能详情' && r[3].value === '日常开发' && r[3].group === 'SQL';
 })());
-check('只有程度 → 两段导入', (() => {
+check('只有程度 → 三段导入（无详情）', (() => {
   const r = splitImportField({ label: 'Python', value: '精通：' });
-  return r && r.length === 2 && r[0].value === 'Python' && r[1].value === '精通' && r[0].group === 'Python';
+  return r && r.length === 3 && r[0].value === 'Python' && r[1].value === '精通' && r[2].label === '使用时间' && r[0].group === 'Python';
 })());
 check('普通值 → null（走普通导入）', splitImportField({ label: '姓名', value: '张三' }) === null);
 check('空 label → null', splitImportField({ label: '  ', value: '熟练：x' }) === null);
 check('非字符串 value → null', splitImportField({ label: 'SQL' }) === null);
-check('认证前缀 → 证书名 + 认证 + 详情', (() => {
+check('认证前缀 → 证书名 + 认证 + 使用时间 + 详情', (() => {
   const r = splitImportField({ label: '帆软 FCP/FCA', value: '认证：商业数据分析（初级）' });
-  return r && r.length === 3 && r[0].value === '帆软 FCP/FCA' && r[0].group === '帆软 FCP/FCA' && r[1].value === '认证' && r[2].value === '商业数据分析（初级）';
+  return r && r.length === 4 && r[0].value === '帆软 FCP/FCA' && r[0].group === '帆软 FCP/FCA' && r[1].value === '认证' && r[3].value === '商业数据分析（初级）';
 })());
 
 // regroupSkills：技能三段缺 group 时幂等归组（填写面板渲染技能卡片的前提）
@@ -94,6 +95,17 @@ check('名称后紧跟下一个技能名称 → 不误归', (() => {
   const mods = entryOf([['技能名称', 'SQL'], ['技能名称', 'Python'], ['掌握程度', '精通']]);
   regroupSkills(mods);
   return mods[0].entries[0].fields[1].group === 'Python';
+})());
+check('四段无 group（名称/程度/使用时间/详情）→ 归组', (() => {
+  const mods = entryOf([['技能名称', 'SQL'], ['掌握程度', '熟练'], ['使用时间', '2年'], ['技能详情', '日常调优']]);
+  const changed = regroupSkills(mods);
+  const g = allGroups(mods);
+  return changed && g.join(',') === '技能名称|SQL,掌握程度|SQL,使用时间|SQL,技能详情|SQL';
+})());
+check('使用时间与掌握程度错序也归组', (() => {
+  const mods = entryOf([['技能名称', 'SQL'], ['使用时间', '3年'], ['掌握程度', '熟悉']]);
+  regroupSkills(mods);
+  return mods[0].entries[0].fields[1].group === 'SQL' && mods[0].entries[0].fields[2].group === 'SQL';
 })());
 
 console.log(`\n${pass} passed, ${fail} failed`);
