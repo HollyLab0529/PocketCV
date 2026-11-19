@@ -1,34 +1,36 @@
 /* 口袋简历 PocketCV · 样式（莫兰迪色板，data-theme 切换） */
-/* 莫兰迪色板：低饱和灰调；默认雾霾蓝，可通过 data-theme 切换 */
+/* 莫兰迪色板：低饱和灰调；默认雾霾蓝，可通过 data-theme 切换
+   对齐成熟扩展的可读性基线：白卡浮在浅灰底、正文近黑、muted ≥4.5:1、
+   输入框白底清晰描边、主色加深保证与白字的对比 */
 :root,[data-theme='haze']{
-  --bg:#eaeeef;--surface:#f6f8f8;--ink:#38404a;--muted:#7c8791;--line:#d4dbde;
-  --accent:#7d93a8;--accent-ink:#ffffff;--accent-soft:#e2eaf0;--danger:#a96a6a;--ok:#8aa894;
-  --radius:8px;--shadow:0 4px 18px #4a545e1a;
+  --bg:#e7ebee;--surface:#ffffff;--ink:#28303a;--muted:#5d6873;--line:#ccd4d9;
+  --accent:#5d7c96;--accent-ink:#ffffff;--accent-soft:#e3ebf1;--danger:#9e5252;--ok:#4f7d63;
+  --radius:10px;--shadow:0 1px 2px #37424e0d,0 3px 12px #37424e14;
 }
 [data-theme='sage']{
-  --bg:#edf0ea;--surface:#f7f9f4;--ink:#3a403a;--muted:#7f877e;--line:#d7ddd1;
-  --accent:#7f9483;--accent-ink:#ffffff;--accent-soft:#e2eae1;--danger:#a96a5f;--ok:#7f9b82;
-  --radius:8px;--shadow:0 4px 18px #4a52461a;
+  --bg:#e9ede4;--surface:#ffffff;--ink:#2b312b;--muted:#5e685e;--line:#ccd4c5;
+  --accent:#637f69;--accent-ink:#ffffff;--accent-soft:#e4ecdf;--danger:#9c5347;--ok:#577b5b;
+  --radius:10px;--shadow:0 1px 2px #3a42360d,0 3px 12px #3a423614;
 }
 [data-theme='oat']{
-  --bg:#f1ede6;--surface:#faf7f2;--ink:#453f37;--muted:#8b8377;--line:#e0d9cc;
-  --accent:#ab8d6f;--accent-ink:#ffffff;--accent-soft:#f0e7d9;--danger:#a96055;--ok:#9aa578;
-  --radius:8px;--shadow:0 4px 18px #5a51451a;
+  --bg:#eee9e0;--surface:#ffffff;--ink:#332e26;--muted:#6a6256;--line:#d9cfbf;
+  --accent:#8a6c4e;--accent-ink:#ffffff;--accent-soft:#f1e8da;--danger:#9b4f44;--ok:#7b8656;
+  --radius:10px;--shadow:0 1px 2px #4a42340d,0 3px 12px #4a423414;
 }
 [data-theme='lilac']{
-  --bg:#eeecf0;--surface:#f8f6fa;--ink:#403a46;--muted:#857e8c;--line:#dcd8e0;
-  --accent:#8f81a1;--accent-ink:#ffffff;--accent-soft:#e9e4ef;--danger:#a56372;--ok:#8aa094;
-  --radius:8px;--shadow:0 4px 18px #504a5a1a;
+  --bg:#eae8ee;--surface:#ffffff;--ink:#2e2935;--muted:#635c6c;--line:#d4cfdc;
+  --accent:#746789;--accent-ink:#ffffff;--accent-soft:#eae5f0;--danger:#9b5362;--ok:#6e867b;
+  --radius:10px;--shadow:0 1px 2px #403a4a0d,0 3px 12px #403a4a14;
 }
 [data-theme='rose']{
-  --bg:#f1ecec;--surface:#faf5f5;--ink:#463b3b;--muted:#8d8181;--line:#e2d8d8;
-  --accent:#ad7f7f;--accent-ink:#ffffff;--accent-soft:#f2e5e5;--danger:#a35252;--ok:#94a583;
-  --radius:8px;--shadow:0 4px 18px #5a4a4a1a;
+  --bg:#eee9e9;--surface:#ffffff;--ink:#332a2a;--muted:#6c5f5f;--line:#dccccc;
+  --accent:#91636a;--accent-ink:#ffffff;--accent-soft:#f2e6e8;--danger:#9b444b;--ok:#7b8662;
+  --radius:10px;--shadow:0 1px 2px #473a3a0d,0 3px 12px #473a3a14;
 }
 *{box-sizing:border-box}
 .spacer{flex:1}
 html,body{margin:0;height:100%}
-body{font:13px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink)}
+body{font:13.5px/1.65 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink)}
 #app{display:flex;flex-direction:column;height:100dvh}
 
 /* 顶栏 */
@@ -38,6 +40,7 @@ body{font:13px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;back
 .brand-en{color:var(--muted);font-weight:500;font-size:11px}
 .topbar-actions{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .search-box{display:flex;align-items:center;gap:6px;flex:1 1 160px;min-width:140px;max-width:340px;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg);padding:5px 9px;color:var(--muted)}
+.search-box:focus-within{border-color:var(--accent);background:var(--surface)}
 .search-input{flex:1;min-width:0;border:0;outline:0;background:transparent;font:inherit;color:var(--ink)}
 .search-input::placeholder{color:var(--muted)}
 
@@ -65,7 +68,7 @@ body{font:13px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;back
 .head-meta{font-size:12px;color:var(--muted)}
 
 /* 记录卡片 */
-.record{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin-bottom:12px}
+.record{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;box-shadow:var(--shadow)}
 .record-top{display:flex;align-items:center;gap:8px}
 .record-toggle{display:flex;align-items:center;gap:8px;flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font:inherit;cursor:pointer;padding:2px 0;text-align:left}
 .record-index{font-size:11px;color:var(--muted);flex-shrink:0}
@@ -82,11 +85,12 @@ body{font:13px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;back
 
 /* 字段 */
 .field{display:block;min-width:0}
-.field-label{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);margin-bottom:4px;min-width:0}
+.field-label{display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--muted);margin-bottom:4px;min-width:0}
 .field-label label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .field-type{font-size:10px;color:var(--muted);background:var(--bg);border-radius:99px;padding:0 6px;flex-shrink:0}
 .field-masked{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40%}
-.field input,.field textarea{width:100%;border:1px solid var(--line);border-radius:var(--radius);padding:7px 9px;font:inherit;color:var(--ink);background:var(--surface)}
+.field input,.field textarea{width:100%;border:1px solid var(--line);border-radius:var(--radius);padding:7px 9px;font:inherit;color:var(--ink);background:var(--surface);box-shadow:0 1px 1px #37424e08}
+.field input::placeholder,.field textarea::placeholder{color:#8b95a0}
 .field textarea{min-height:84px;resize:vertical;line-height:1.6}
 .field input:focus,.field textarea:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
 .lock{color:var(--muted)}
@@ -104,12 +108,13 @@ body{font:13px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;back
 .empty-state .modal-description{margin:0 0 12px}
 
 /* 按钮 */
-.btn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:var(--radius);padding:6px 12px;font:inherit;cursor:pointer;white-space:nowrap;flex-shrink:0}
-.btn:hover{border-color:var(--accent)}
+.btn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:var(--radius);padding:6px 12px;font:inherit;cursor:pointer;white-space:nowrap;flex-shrink:0;box-shadow:0 1px 1px #37424e08}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-.btn.accent{background:var(--accent-soft);border-color:transparent;color:var(--accent);font-weight:600}
-.btn.accent:hover{border-color:var(--accent)}
-.btn.quiet{border-color:transparent}
+.btn.primary:hover{color:var(--accent-ink);filter:brightness(.94)}
+.btn.accent{background:var(--accent-soft);border-color:transparent;color:var(--accent);font-weight:600;box-shadow:none}
+.btn.accent:hover{border-color:var(--accent);color:var(--accent)}
+.btn.quiet{border-color:transparent;box-shadow:none}
 .btn.danger{color:var(--danger);border-color:var(--danger)}
 .btn.small{padding:3px 9px;font-size:12px}
 .btn.icon-only{padding:6px}
@@ -145,6 +150,7 @@ dialog.modal:not(:has(.modal-foot button)) .modal-foot{display:none}
 .control{display:block;margin-bottom:12px}
 .control-label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
 .control input,.control textarea,.control select{width:100%;border:1px solid var(--line);border-radius:var(--radius);padding:7px 9px;font:inherit;color:var(--ink);background:var(--surface)}
+.control input:focus,.control textarea:focus,.control select:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
 .hint{display:block;font-size:12px;color:var(--muted);margin-top:5px;line-height:1.65}
 .check-row{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px;cursor:pointer}
 .menu-row{display:flex;align-items:center;gap:8px;margin:10px 0;flex-wrap:wrap}
@@ -279,6 +285,13 @@ body[data-view='panel'] .banner .btn .icon{display:none}
   .nav-bottom .btn{width:auto}
   .brand-en{display:none}
   .search-box{flex:1 1 100%;min-width:0;max-width:none;order:9}
+  /* 资料维护页放不下四个带字按钮：收纳成图标（title 兜底）；
+     填写面板只有三个按钮且「一键核对」是主操作，保留文字 */
+  .topbar{padding:8px 10px}
+  body[data-view='manager'] .topbar .btn span{display:none}
+  body[data-view='manager'] .topbar .btn{padding:6px}
+  body[data-view='manager'] .topbar .btn.primary,body[data-view='manager'] .topbar .btn.accent{padding:6px 8px}
+  .topbar-actions{gap:4px}
 }
 
 /* ===== AI 定制（第 5 期） ===== */

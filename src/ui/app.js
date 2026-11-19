@@ -188,7 +188,6 @@ function applyTheme(id) {
   return id;
 }
 let themeId = applyTheme(loadTheme());
-let themeBtn = null;
 const themeName = () => THEMES.find((t) => t.id === themeId)?.name || '';
 
 async function themeDialog() {
@@ -205,7 +204,6 @@ async function themeDialog() {
         type: 'button', class: 'theme-row', 'data-active': String(t.id === themeId),
         on: { click: () => {
           themeId = applyTheme(t.id);
-          if (themeBtn) themeBtn.replaceChildren(icon('settings'), h('span', { text: `主题 · ${themeName()}` }));
           paint();
         } },
       },
@@ -1126,7 +1124,7 @@ function buildShell() {
     if (e.key === 'Escape') { searchInput.value = ''; query = ''; render(); }
   });
 
-  // 填写模式：顶栏只留高频动作，管理动作收进「更多」菜单（极简顶栏）
+  // 填写模式：顶栏只留高频动作，管理动作（含主题/字体）收进「更多」菜单（极简顶栏）
   const topbar = fillMode
     ? h('header', { class: 'topbar panel-topbar' },
         h('div', { class: 'brand' },
@@ -1134,9 +1132,8 @@ function buildShell() {
           h('span', { text: '口袋简历' })),
         h('div', { class: 'search-box', role: 'search' }, icon('search', 14), searchInput),
         h('div', { class: 'topbar-actions' },
-          (themeBtn = button('主题', themeDialog, { kind: 'quiet icon-only', symbol: 'settings', title: `主题 · ${themeName()}` })),
           button('一键核对', fillEmptiesSafe, { kind: 'primary', symbol: 'scan', title: '扫描本页输入框：补齐空框 + 核对差异，可整体撤回' }),
-          button('更多', () => moreMenu(), { kind: 'quiet icon-only', symbol: 'menu', title: '导出 / 导入 / 历史 / AI 定制' })))
+          button('更多', () => moreMenu(), { kind: 'quiet icon-only', symbol: 'menu', title: '主题 / 字体 / 导出导入 / 历史 / AI' })))
     : h('header', { class: 'topbar' },
         h('div', { class: 'brand' },
           h('span', { class: 'brand-glyph', text: '袋' }),
@@ -1182,6 +1179,8 @@ function buildShell() {
  *  填写模式默认含「清除全部资料」；manager 底栏已常驻同一入口，传入的列表不再重复。 */
 async function moreMenu(actions = [
   ['一键核对本页表单', fillEmptiesSafe, 'scan'],
+  ['主题 · ' + themeName(), themeDialog, 'settings'],
+  ['字体大小', fontDialog, 'type'],
   ['附件管理', filesDialog, 'upload'],
   ['角标计数（显示可填字段数）', badgeToggle, 'check'],
   ['AI 一键识别简历', aiImportDialog, 'scan'],
