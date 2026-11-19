@@ -3,29 +3,29 @@
    对齐成熟扩展的可读性基线：白卡浮在浅灰底、正文近黑、muted ≥4.5:1、
    输入框白底清晰描边、主色加深保证与白字的对比 */
 :root,[data-theme='haze']{
-  --bg:#e7ebee;--surface:#ffffff;--ink:#28303a;--muted:#5d6873;--line:#ccd4d9;
+  --bg:#eff2f4;--surface:#ffffff;--ink:#28303a;--muted:#5d6873;--line:#ccd4d9;
   --accent:#5d7c96;--accent-ink:#ffffff;--accent-soft:#e3ebf1;--danger:#9e5252;--ok:#4f7d63;
-  --radius:10px;--shadow:0 1px 2px #37424e0d,0 3px 12px #37424e14;
+  --radius:10px;--shadow:0 1px 2px #37424e10,0 4px 16px #37424e1c;
 }
 [data-theme='sage']{
-  --bg:#e9ede4;--surface:#ffffff;--ink:#2b312b;--muted:#5e685e;--line:#ccd4c5;
+  --bg:#f1f4ee;--surface:#ffffff;--ink:#2b312b;--muted:#5e685e;--line:#ccd4c5;
   --accent:#637f69;--accent-ink:#ffffff;--accent-soft:#e4ecdf;--danger:#9c5347;--ok:#577b5b;
-  --radius:10px;--shadow:0 1px 2px #3a42360d,0 3px 12px #3a423614;
+  --radius:10px;--shadow:0 1px 2px #3a423610,0 4px 16px #3a42361c;
 }
 [data-theme='oat']{
-  --bg:#eee9e0;--surface:#ffffff;--ink:#332e26;--muted:#6a6256;--line:#d9cfbf;
+  --bg:#f5f1ea;--surface:#ffffff;--ink:#332e26;--muted:#6a6256;--line:#d9cfbf;
   --accent:#8a6c4e;--accent-ink:#ffffff;--accent-soft:#f1e8da;--danger:#9b4f44;--ok:#7b8656;
-  --radius:10px;--shadow:0 1px 2px #4a42340d,0 3px 12px #4a423414;
+  --radius:10px;--shadow:0 1px 2px #4a423410,0 4px 16px #4a42341c;
 }
 [data-theme='lilac']{
-  --bg:#eae8ee;--surface:#ffffff;--ink:#2e2935;--muted:#635c6c;--line:#d4cfdc;
+  --bg:#f2f0f5;--surface:#ffffff;--ink:#2e2935;--muted:#635c6c;--line:#d4cfdc;
   --accent:#746789;--accent-ink:#ffffff;--accent-soft:#eae5f0;--danger:#9b5362;--ok:#6e867b;
-  --radius:10px;--shadow:0 1px 2px #403a4a0d,0 3px 12px #403a4a14;
+  --radius:10px;--shadow:0 1px 2px #403a4a10,0 4px 16px #403a4a1c;
 }
 [data-theme='rose']{
-  --bg:#eee9e9;--surface:#ffffff;--ink:#332a2a;--muted:#6c5f5f;--line:#dccccc;
+  --bg:#f5f0f0;--surface:#ffffff;--ink:#332a2a;--muted:#6c5f5f;--line:#dccccc;
   --accent:#91636a;--accent-ink:#ffffff;--accent-soft:#f2e6e8;--danger:#9b444b;--ok:#7b8662;
-  --radius:10px;--shadow:0 1px 2px #473a3a0d,0 3px 12px #473a3a14;
+  --radius:10px;--shadow:0 1px 2px #473a3a10,0 4px 16px #473a3a1c;
 }
 *{box-sizing:border-box}
 .spacer{flex:1}
