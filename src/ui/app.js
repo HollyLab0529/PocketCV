@@ -166,9 +166,10 @@ async function flushWithHistory() {
   return flush();
 }
 
-// ===== 主题（莫兰迪色板） =====
+// ===== 主题（默认靛蓝·高对比；莫兰迪色板保留可选） =====
 const THEMES = [
-  { id: 'haze', name: '雾霾蓝', dot: '#7d93a8', tag: '默认 · 安静专注' },
+  { id: 'indigo', name: '靓蓝', dot: '#4c5ee8', tag: '默认 · 清晰突出' },
+  { id: 'haze', name: '雾霾蓝', dot: '#7d93a8', tag: '经典 · 低饱和安静' },
   { id: 'sage', name: '灰豆绿', dot: '#7f9483', tag: '温和清新' },
   { id: 'oat', name: '燕麦杏', dot: '#ab8d6f', tag: '暖调 · 燕麦拿铁' },
   { id: 'lilac', name: '灰藤紫', dot: '#8f81a1', tag: '柔和优雅' },
@@ -177,7 +178,12 @@ const THEMES = [
 const THEME_KEY = 'pocketcv.theme.v1';
 function loadTheme() {
   try {
-    const id = localStorage.getItem(THEME_KEY);
+    let id = localStorage.getItem(THEME_KEY);
+    // 旧默认「雾霾蓝」升级为新默认靓蓝；显式选过的其它主题保留
+    if (id === 'haze' && !localStorage.getItem('pocketcv.theme.hazeKept')) {
+      localStorage.setItem('pocketcv.theme.hazeKept', '1');
+      return 'indigo';
+    }
     return THEMES.some((t) => t.id === id) ? id : THEMES[0].id;
   } catch { return THEMES[0].id; }
 }
@@ -192,7 +198,7 @@ const themeName = () => THEMES.find((t) => t.id === themeId)?.name || '';
 
 async function themeDialog() {
   await modal('界面配色', ({ body, foot, finish }) => {
-    body.append(h('p', { class: 'modal-description', text: '莫兰迪色系，点选立即生效，偏好保存在本机。' }));
+    body.append(h('p', { class: 'modal-description', text: '默认靛蓝更清晰突出；莫兰迪色系依旧可选。点选立即生效，偏好保存在本机。' }));
     const list = h('div', { class: 'theme-list' });
     const paint = () => [...list.children].forEach((row, i) => {
       row.dataset.active = String(THEMES[i].id === themeId);
@@ -1326,7 +1332,7 @@ function renderHead() {
   const filled = m.entries.reduce((n, e) => n + e.fields.filter((f) => f.value !== '').length, 0);
 headNode.append(...[  // 注意：append(字面 null) 会渲染成 'null' 文本，必须先过滤
   h('h1', { class: 'head-title', text: m.name }),
-  h('span', { class: 'module-tier', text: m.tier }),
+  h('span', { class: 'module-tier', 'data-tier': m.tier, text: m.tier }),
   h('span', { class: 'head-meta', text: `${m.entries.length} 记录 · ${filled} 项已填` }),
   h('span', { class: 'spacer' }),
   fillMode ? button(prefs.hideEmpty ? '显示全部' : '只看已填', () => { prefs.hideEmpty = !prefs.hideEmpty; savePrefs(); render(); }, { kind: 'quiet' }) : null,
