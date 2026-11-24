@@ -409,6 +409,31 @@ async function fillEmpties() {
     ? h('p', { class: 'fill-warn', text: `⚠️ 有 ${filePicks.filter((p) => !p.file).length} 个上传框没有匹配到附件，请到管理页「附件管理」上传，或手动上传。` })
     : null;
   const shorten = (s) => { const t = String(s || '').replace(/\s+/g, ' '); return t.slice(0, 30) + (t.length > 30 ? '…' : ''); };
+  // 字段 → 所属记录（多段经历场景：预览每行标明值来自哪条记录，写入前一眼核对，防错位）
+  const srcOf = new Map();
+  const entryOfFieldId = new Map();
+  for (const m of profile.modules) for (const e of m.entries) for (const f of e.fields) {
+    srcOf.set(f.id, e.title);
+    entryOfFieldId.set(f.id, e);
+  }
+  const shortSrc = (fid) => { const t = srcOf.get(fid) || ''; return t ? (t.length > 14 ? t.slice(0, 14) + '…' : t) : ''; };
+  // 多段经历引导：资料里同一段式有 N 条记录但本页只核对到 M 段时，提示「网页上加一段 → 再核对」，
+  // 下一段会按顺序消耗下一条记录（同名框按出现次序配对，预览逐行可验）
+  const segmentHints = [];
+  for (const name of ['项目经历', '实习经历', '工作经历', '校园经历']) {
+    const mod = profile.modules.find((m) => m.name === name);
+    if (!mod) continue;
+    const filledEntries = mod.entries.filter((e) => e.fields.some((f) => typeof f.value === 'string' && f.value.trim()));
+    if (filledEntries.length < 2) continue;
+    const hitIds = new Set();
+    for (const x of [...fills, ...conflicts, ...sames]) {
+      const e = entryOfFieldId.get(x.field?.id);
+      if (e) hitIds.add(e.id);
+    }
+    if (!hitIds.size || hitIds.size >= filledEntries.length) continue;
+    const next = filledEntries.find((e) => !hitIds.has(e.id));
+    segmentHints.push(`「${name}」资料里有 ${filledEntries.length} 段，本页只核对到 ${hitIds.size} 段——在网页上点「添加一段」后，再点一次「一键核对」，下一段会按顺序填入「${next.title}」；写入前可在预览里逐行核对来源。`);
+  }
   // 框名展示：主体取「｜」后真正的输入框名，前文上下文弱化展示，避免把导航文字当框名
   const boxParts = (b) => {
     const segs = String(b.label || '').split('｜');
@@ -466,9 +491,10 @@ async function fillEmpties() {
   // 已一致行：只读展示（资料值与网站现值一致，不会改动）
   const sameRow = (m) => {
     const { main, ctx } = boxParts(m.box);
+    const src = shortSrc(m.field.id);
     return h('div', { class: 'check-row fill-empty-row fill-same-row', title: m.box.label },
       h('span', { class: 'fill-empty-main' },
-        h('b', {}, h('span', { class: 'tag tag-src', text: '资料' }), m.field.label),
+        h('b', {}, h('span', { class: 'tag tag-src', text: '资料' }), m.field.label, src ? h('span', { class: 'fill-src', text: ' · ' + src }) : null),
         h('span', { class: 'fill-empty-target' },
           h('span', { class: 'tag tag-site', text: '网站框' }), main,
           ctx ? h('span', { class: 'fill-empty-ctx', text: `　${ctx}` }) : null)),
@@ -485,6 +511,7 @@ async function fillEmpties() {
     if (unknown.length >= 3) {
       await modal('本页核对结果', ({ body, foot, finish }) => {
         body.append(coverageRich());
+        for (const t of segmentHints) body.append(h('p', { class: 'seg-hint', text: '💡 ' + t }));
         body.append(manualWarn());
         sameSection(body);
         const h4 = h('h4', { class: 'fill-section-title t-unknown', text: `无法自动填写的输入框（${unknown.length} 个，点击可在网页上定位）` });
@@ -503,6 +530,7 @@ async function fillEmpties() {
   }
   const picks = await modal('核对本页表单', ({ body, foot, finish }) => {
     body.append(coverageRich());
+    for (const t of segmentHints) body.append(h('p', { class: 'seg-hint', text: '💡 ' + t }));
     if (unknown.length >= 3) body.append(manualWarn());
     if (fileWarn) body.append(fileWarn);
     const rows = [];
@@ -543,10 +571,11 @@ async function fillEmpties() {
         const cb = h('input', { type: 'checkbox', checked: m.field.sensitive ? undefined : true });
         const { main, ctx } = boxParts(m.box);
         const valueEl = editableValue(shorten(m.field.value));
+        const src = shortSrc(m.field.id);
         const row = h('label', { class: 'check-row fill-empty-row', title: m.box.label },
           cb,
           h('span', { class: 'fill-empty-main' },
-            h('b', {}, h('span', { class: 'tag tag-src', text: '资料' }), m.field.label),
+            h('b', {}, h('span', { class: 'tag tag-src', text: '资料' }), m.field.label, src ? h('span', { class: 'fill-src', text: ' · ' + src }) : null),
             h('span', { class: 'fill-empty-target' },
               h('span', { class: 'tag tag-site', text: '网站框' }), main,
               ctx ? h('span', { class: 'fill-empty-ctx', text: `　${ctx}` }) : null)),
@@ -563,10 +592,11 @@ async function fillEmpties() {
       body.append(h4);
       for (const m of conflicts) {
         const cb = h('input', { type: 'checkbox' });
+        const src = shortSrc(m.field.id);
         const row = h('label', { class: 'check-row fill-empty-row fill-conflict-row', title: m.box.label },
           cb,
           h('span', { class: 'fill-empty-main' },
-            h('b', {}, h('span', { class: 'tag tag-src', text: '资料' }), m.field.label),
+            h('b', {}, h('span', { class: 'tag tag-src', text: '资料' }), m.field.label, src ? h('span', { class: 'fill-src', text: ' · ' + src }) : null),
             h('span', { class: 'fill-diff-old', text: '网站：' + shorten(m.box.value) }),
             h('span', { class: 'fill-diff-new' },
               (m.field.sensitive ? '🔒 ' : '') + '资料：',
@@ -582,10 +612,11 @@ async function fillEmpties() {
       for (const m of pickerPicks) {
         const cb = h('input', { type: 'checkbox', checked: m.field.sensitive ? undefined : true });
         const { main, ctx } = boxParts(m.box);
+        const src = shortSrc(m.field.id);
         const row = h('label', { class: 'check-row fill-empty-row fill-date-row', title: m.box.label },
           cb,
           h('span', { class: 'fill-empty-main' },
-            h('b', {}, h('span', { class: 'tag tag-src', text: '资料' }), m.field.label),
+            h('b', {}, h('span', { class: 'tag tag-src', text: '资料' }), m.field.label, src ? h('span', { class: 'fill-src', text: ' · ' + src }) : null),
             h('span', { class: 'fill-empty-target' },
               h('span', { class: 'tag tag-site', text: '下拉框' }), main,
               ctx ? h('span', { class: 'fill-empty-ctx', text: `　${ctx}` }) : null)),
@@ -781,6 +812,45 @@ async function copyField(field) {
   }
 }
 
+async function copyEntryTitle(e) {
+  if (!e?.title) { toast('这条记录还没有名称。', true); return; }
+  try {
+    await navigator.clipboard.writeText(e.title);
+    toast(`已复制记录名称「${e.title}」。`);
+  } catch {
+    toast('无法访问剪贴板，请直接拖选标题复制。', true);
+  }
+}
+
+/** 在填写面板里直接改字段值：保存写回资料库，带撤销点 */
+async function editFieldValue(entryId, fieldId) {
+  const found = getEntry(profile, entryId);
+  const f = found?.entry.fields.find((x) => x.id === fieldId);
+  if (!f) return;
+  const multiline = f.type === 'multiline' && !f.sensitive;
+  const control = multiline
+    ? h('textarea', { rows: 8, spellcheck: 'false' })
+    : h('input', { type: f.sensitive ? 'password' : inputType(f.type), value: f.value, autocomplete: 'off' });
+  if (multiline) control.value = f.value;
+  const action = await modal(`修改 · ${f.label}`, ({ body, foot, finish }) => {
+    body.append(
+      h('p', { class: 'modal-description', text: `${found.module.name} / ${found.entry.title}${f.group ? ' · ' + f.group : ''}` }),
+      inputLabel('内容', control, f.sensitive ? '敏感字段在这里按密码显示，保存后仍按掩码展现。' : '保存后写回资料库，可在历史里找回修改前的版本。'));
+    const submit = () => finish('save');
+    control.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !multiline) { ev.preventDefault(); submit(); } });
+    foot.append(h('span', { class: 'spacer' }),
+      button('取消', () => finish(null), { kind: 'quiet' }),
+      button('保存', submit, { kind: 'primary' }));
+  });
+  if (action !== 'save') return;
+  const next = control.value;
+  if (next === f.value) return;
+  commit((p) => {
+    const target = getEntry(p, entryId).entry.fields.find((x) => x.id === fieldId);
+    if (target) target.value = next;
+  }, '修改字段值前');
+}
+
 async function viewField(field, note = '') {
   await modal(field.label, ({ body, foot, finish }) => {
     if (note) body.append(h('p', { class: 'modal-description', text: note }));
@@ -819,6 +889,7 @@ function renderFillField(e, f) {
     h('span', { class: 'fill-actions', on: { click: (ev) => ev.stopPropagation() } },
       f.sensitive ? button('', () => { if (revealed.has(f.id)) revealed.delete(f.id); else revealed.add(f.id); render(); }, { kind: 'quiet icon-only', symbol: 'eye', title: (revealed.has(f.id) ? '隐藏' : '查看') + f.label }) : null,
       !f.sensitive && !empty ? button('', () => aiFieldDialog(f), { kind: 'quiet icon-only', symbol: 'spark', title: `AI 按 JD 改写${f.label}` }) : null,
+      button('', () => editFieldValue(e.id, f.id), { kind: 'quiet icon-only', symbol: 'edit', title: `修改${f.label}（写回资料库）` }),
       button('', () => copyField(f), { kind: 'quiet icon-only', symbol: 'copy', title: '复制' + f.label, disabled: empty })));
   // h() 会过滤 null 子节点；切勿改回 row.append(..., 条件 ? x : null, ...)（原生 append 会把字面 null 画成 'null' 文本）
   if (!empty) {
@@ -829,12 +900,13 @@ function renderFillField(e, f) {
 }
 
 /** 技能卡片头：加粗技能名一行，点击填入网站的技能名称框 */
-function renderSkillHead(f) {
+function renderSkillHead(e, f) {
   const row = h('div', { class: 'fill-field skill-head', role: 'button', tabindex: '0',
     'aria-label': '填入技能名称', title: `点击填入技能名称：${f.value}` },
     h('span', { class: 'skill-head-name', text: f.value, title: f.value }),
     h('span', { class: 'fill-actions', on: { click: (ev) => ev.stopPropagation() } },
       button('', () => aiFieldDialog(f), { kind: 'quiet icon-only', symbol: 'spark', title: 'AI 按 JD 改写技能名称' }),
+      button('', () => editFieldValue(e.id, f.id), { kind: 'quiet icon-only', symbol: 'edit', title: '修改技能名称（写回资料库）' }),
       button('', () => copyField(f), { kind: 'quiet icon-only', symbol: 'copy', title: '复制技能名称' })));
   row.addEventListener('click', () => fillField(f));
   row.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); fillField(f); } });
@@ -1144,16 +1216,7 @@ function buildShell() {
           button('保存', () => { flush().then((ok) => { toast(ok ? '已保存到本机。' : '保存失败，请重试。', !ok); }); }, { kind: 'primary', symbol: 'check', title: '立即保存（Ctrl S）' }),
           button('AI 识别简历', aiImportDialog, { kind: 'accent', symbol: 'scan', title: '粘贴简历原文，AI 自动提取到对应分类字段（不编造，先预览再导入）' }),
           button('AI 按 JD 定制', aiDialog, { kind: 'accent', symbol: 'spark', title: '粘贴职位描述（JD），AI 只基于现有内容改写相关字段' }),
-          button('更多', () => moreMenu([
-            ['一键核对本页表单', fillEmptiesSafe, 'scan'],
-            ['附件管理', filesDialog, 'upload'],
-            ['字体大小', fontDialog, 'type'],
-            ['主题 · ' + themeName(), themeDialog, 'settings'],
-            ['导出资料 / 空白模板', exportDialog, 'download'],
-            ['导入资料文件', importDialog, 'upload'],
-            ['本地历史版本', historyDialog, 'history'],
-            ['反馈问题 / 建议', openFeedback, 'target'],
-          ]), { kind: 'quiet', symbol: 'menu', title: '附件 / 字体 / 主题 / 导出 / 导入 / 历史 / 反馈' })));
+          button('更多', () => moreMenu(buildMenuGroups()), { kind: 'quiet', symbol: 'menu', title: '附件 / 字体 / 主题 / 导出 / 导入 / 历史 / 反馈' })));
 
   navNode = h('nav', { class: 'module-nav', 'aria-label': '资料分类' });
   const navBottom = h('div', { class: 'nav-bottom' },
@@ -1175,27 +1238,43 @@ function buildShell() {
   root.replaceChildren(topbar, ...(fillMode && bannerNode ? [bannerNode] : []), shell, bottom);
 }
 
-/** 低频管理动作收进「更多」菜单；actions: [label, handler, symbol, kind?]，
- *  填写模式默认含「清除全部资料」；manager 底栏已常驻同一入口，传入的列表不再重复。 */
-async function moreMenu(actions = [
-  ['一键核对本页表单', fillEmptiesSafe, 'scan'],
-  ['主题 · ' + themeName(), themeDialog, 'settings'],
-  ['字体大小', fontDialog, 'type'],
-  ['附件管理', filesDialog, 'upload'],
-  ['角标计数（显示可填字段数）', badgeToggle, 'check'],
-  ['AI 一键识别简历', aiImportDialog, 'scan'],
-  ['AI 按 JD 定制', aiDialog, 'spark'],
-  ['字体大小', fontDialog, 'type'],
-  ['导出资料 / 空白模板', exportDialog, 'download'],
-  ['导入资料文件', importDialog, 'upload'],
-  ['本地历史版本', historyDialog, 'history'],
-  ['反馈问题 / 建议', openFeedback, 'target'],
-  ['清除全部资料', 'erase', 'trash', 'quiet danger'],
-]) {
+/** 低频管理动作按用途分组收进「更多」菜单；填写模式额外带 AI/角标/清除资料（管理页底栏已常驻清除入口）。
+ *  groups: [{ title, items: [label, handler, symbol, kind?] }]，title 为空的组不加小标题（用于危险区）。 */
+function buildMenuGroups({ fill = false } = {}) {
+  return [
+    { title: '填写', items: [
+      ['一键核对本页表单', fillEmptiesSafe, 'scan'],
+      ...(fill ? [
+        ['AI 一键识别简历', aiImportDialog, 'scan'],
+        ['AI 按 JD 定制', aiDialog, 'spark'],
+        ['角标计数（显示可填字段数）', badgeToggle, 'check'],
+      ] : []),
+      ['附件管理', filesDialog, 'upload'],
+    ] },
+    { title: '外观', items: [
+      ['主题 · ' + themeName(), themeDialog, 'settings'],
+      ['字体大小', fontDialog, 'type'],
+    ] },
+    { title: '数据', items: [
+      ['导出资料 / 空白模板', exportDialog, 'download'],
+      ['导入资料文件', importDialog, 'upload'],
+      ['本地历史版本', historyDialog, 'history'],
+    ] },
+    { title: '帮助', items: [
+      ['反馈问题 / 建议', openFeedback, 'target'],
+    ] },
+    ...(fill ? [{ title: '', items: [['清除全部资料', 'erase', 'trash', 'quiet danger']] }] : []),
+  ];
+}
+
+async function moreMenu(groups = buildMenuGroups({ fill: true })) {
   const action = await modal('更多操作', ({ body, finish }) => {
     body.classList.add('menu-list');
-    body.append(h('p', { class: 'modal-description', text: '不常用的管理动作都收在这里。' }));
-    for (const [label, handler, symbol, kind] of actions) body.append(button(label, () => finish(handler), { kind: kind || 'quiet', symbol }));
+    body.append(h('p', { class: 'modal-description', text: '常用动作都在顶栏，这里按用途分组收管理动作。' }));
+    for (const g of groups) {
+      if (g.title) body.append(h('div', { class: 'menu-group-title', text: g.title }));
+      for (const [label, handler, symbol, kind] of g.items) body.append(button(label, () => finish(handler), { kind: kind || 'quiet', symbol }));
+    }
   });
   if (!action) return;
   if (action === 'erase') await eraseAll();
@@ -1321,13 +1400,22 @@ function renderEntry(m, e, index) {
   const toggle = h('button', {
     type: 'button', class: 'record-toggle', 'aria-expanded': String(open),
     title: open ? '点击折叠该记录，只留标题行' : '点击展开该记录',
-    on: { click: () => { if (collapsed.has(e.id)) collapsed.delete(e.id); else collapsed.add(e.id); render(); } },
+    on: {
+      click: (ev) => {
+        // 标题允许拖选复制：选区非空时不折叠，否则选完字整块收起
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed && ev.currentTarget.contains(sel.anchorNode)) return;
+        if (collapsed.has(e.id)) collapsed.delete(e.id); else collapsed.add(e.id);
+        render();
+      },
+    },
   },
   h('span', { class: 'record-index', text: String(index + 1).padStart(2, '0') }),
   h('span', { class: 'record-title', text: e.title }),
   h('span', { class: 'record-summary', text: summary(e), title: summary(e) }),
   h('span', { class: 'chevron', 'aria-hidden': 'true' }, icon('chevdown', 13)));
   const bar = h('div', { class: 'record-top' }, toggle,
+    button('', () => copyEntryTitle(e), { kind: 'quiet icon-only', symbol: 'copy', title: '复制记录名称（项目名称/单位名称）' }),
     fillMode ? null : button('记录操作', () => entryMenu(m.id, e.id), { kind: 'quiet icon-only', symbol: 'edit', title: '记录操作：' + e.title }));
   card.append(bar);
 
@@ -1340,7 +1428,7 @@ function renderEntry(m, e, index) {
       // 技能卡片：技能名称字段渲染成卡片头（加粗技能名，点击填名称框），其余行跟在下面
       const nameField = fillMode && group ? shown.find((f) => f.label === '技能名称' && f.value.trim()) : null;
       if (fillMode && nameField) {
-        card.append(renderSkillHead(nameField));
+        card.append(renderSkillHead(e, nameField));
         const rest = shown.filter((f) => f !== nameField);
         if (rest.length) card.append(h('div', { class: 'fill-list' }, rest.map((f) => renderFillField(e, f))));
         continue;
@@ -1475,6 +1563,15 @@ async function entryMenu(moduleId, entryId) {
       commit((p) => { getEntry(p, entryId).entry.title = title; }, '重命名记录前');
       finish(null);
     };
+    const copyTitle = async () => {
+      try {
+        await navigator.clipboard.writeText(e.title);
+        toast(`已复制记录标题「${e.title}」。`);
+        finish(null);
+      } catch {
+        toast('无法访问剪贴板，请手动选中标题复制。', true);
+      }
+    };
     const duplicate = () => {
       commit((p) => {
         const source = getEntry(p, entryId).entry;
@@ -1499,6 +1596,7 @@ async function entryMenu(moduleId, entryId) {
     };
     body.append(
       button('重命名记录', rename, { kind: 'quiet' }),
+      button('复制标题', copyTitle, { kind: 'quiet', symbol: 'copy', title: '把这条记录的名称复制到剪贴板' }),
       button('复制一份', duplicate, { kind: 'quiet' }),
       h('div', { class: 'menu-row' },
         button('上移', () => shift(-1), { kind: 'quiet', disabled: index === 0 }),

@@ -169,6 +169,7 @@ export function starterProfile() {
   // 项目经历
   const proj = makeModule('项目经历');
   proj.entries.push(makeEntry('项目名称', [
+    makeField('项目名称', '', 'text'),
     makeField('担任角色', '', 'text'),
     makeField('项目链接', '', 'url'),
     makeField('开始时间', '', 'month'),
@@ -310,6 +311,14 @@ export function alignStarterPack(profile) {
   if (proj) for (const e of proj.entries || []) {
     splitTimeField(e, '起止时间');
     ensureField(e, '项目职责', 'multiline', '项目描述');
+    // 补「项目名称」字段：网申表单普遍有这个框，之前名称只存在记录标题里，
+    // 一键核对对不上、填写面板也没得复制。迁移时用记录标题填值（仅创建时，之后尊重用户修改）。
+    if (!fld(e, '项目名称')) {
+      const nf = makeField('项目名称', '', 'text');
+      if (e.title) nf.value = e.title;
+      e.fields.unshift(nf);
+      changed = true;
+    }
   }
   const campus = mod('校园经历');
   if (campus) for (const e of campus.entries || []) splitTimeField(e, '起止时间');

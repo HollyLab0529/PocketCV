@@ -38,11 +38,13 @@ const SYNONYMS = {
   '起止时间': ['实习时间', '工作时间', '起止日期', '实习起止时间', '项目时间', '任职时间'],
   '工作描述': ['实习描述', '工作内容', '工作职责', '职责描述', '实习内容', '项目中职责', '项目职责', '职责', '主要职责', '职责与成果'],
   '主要成果': ['实习成果', '工作成果', '主要业绩'],
-  '担任角色': ['项目角色', '角色', '承担角色'],
-  '项目链接': ['项目地址', '项目网址', 'demo 链接'],
-  '项目描述': ['项目简介', '项目介绍', '项目内容', '项目说明'],
-  '技术栈 / 方法': ['技术栈', '使用技术', '技术方案', '技术选型'],
-  '成果与数据': ['项目成果', '项目业绩', '项目产出'],
+  '担任角色': ['项目角色', '角色', '承担角色', '项目职务', '我的角色'],
+  '项目链接': ['项目地址', '项目网址', 'demo 链接', '演示地址', '线上地址', '开源地址'],
+  '项目名称': ['项目题目', '项目名'],
+  '项目描述': ['项目简介', '项目介绍', '项目内容', '项目说明', '项目概况', '项目详情', '项目背景'],
+  '项目职责': ['职责', '个人职责', '项目中职责'],
+  '技术栈 / 方法': ['技术栈', '使用技术', '技术方案', '技术选型', '开发技术', '技术'],
+  '成果与数据': ['项目成果', '项目业绩', '项目产出', '项目成效', '项目收获'],
   '组织名称': ['社团名称', '组织', '社团', '学生组织'],
   '职责与成果': ['工作职责与成果', '职责成果'],
   '专业技能': ['专业技能描述', '技能特长', '技能'],
@@ -104,28 +106,65 @@ const GENERIC_HEADS = new Set([
 // 把页面框的 label 拆成候选关键词：取「｜」前后两段分别参与匹配
 const labelParts = (label) => String(label || '').split(/[｜|]/).flatMap((part) => part.split(/[\s/·]+/)).map(norm).filter(Boolean);
 
+// ===== 分区上下文 =====
+// 网申表单的框名常带分区前缀（如「项目经历｜职责」）。分区指明了这段框属于哪类经历，
+// 匹配时应优先限定到对应模块的字段——否则项目段的「职责」会先命中实习经历的同义词「工作描述」。
+// 注意：contextScope 只看「｜」前的分区头，不看主标签本身。
+const SCOPE_RULES = [
+  [/项目/, 'project'],
+  [/(实习|工作)/, 'work'],
+  [/(教育|学历|在校|学校)/, 'edu'],
+  [/(校园|社团|学生)/, 'campus'],
+];
+const SCOPE_MODULES = {
+  project: ['项目经历'],
+  work: ['实习经历', '工作经历'],
+  edu: ['教育经历'],
+  campus: ['校园经历'],
+};
+const EXPERIENCE_MODULES = ['项目经历', '实习经历', '工作经历', '校园经历', '教育经历'];
+
+export function contextScope(label) {
+  const head = String(label || '').split('｜').slice(0, -1).join('｜');
+  if (!head) return '';
+  for (const [re, scope] of SCOPE_RULES) if (re.test(head)) return scope;
+  return '';
+}
+
 export function matchBoxes(boxes, profile, opts = {}) {
   // opts.pickers：允许处理自定义下拉框（严格匹配：只点精确/同义词命中项，模糊宁可不填）
   // 同名字段按资料顺序建组：多段经历的「公司名称」等同名框按出现次序逐个消耗，
   // 避免把第一段经历的公司写进所有段。
-  const fieldsByLabel = new Map();   // normLabel -> { label, fields: [...] }
+  const fieldsByLabel = new Map();   // normLabel -> { label, fields: [{ field, mod }] }
   for (const m of profile.modules) {
     for (const e of m.entries) {
       for (const f of e.fields) {
         if (typeof f.value !== 'string' || !f.value.trim()) continue;
         const nl = norm(f.label);
         if (!fieldsByLabel.has(nl)) fieldsByLabel.set(nl, { label: f.label, fields: [] });
-        fieldsByLabel.get(nl).fields.push(f);
+        fieldsByLabel.get(nl).fields.push({ field: f, mod: m.name });
       }
     }
   }
   const used = new Set();   // 高置信命中只允许一个框占用一个字段，避免多框抢同值
   const mediumUsed = new Set();   // 宽容命中之间的去重标记：不阻塞高置信，只防多个模糊框重复填同一值
   const matches = [];
+  // 按分区从候选组里挑字段：分区内优先，其次非经历类共享字段；分区明确指向别类经历时不回退——
+  // 宁可不填也不把实习经历的内容填进项目段
+  const pickFrom = (list, scopeMods, medium) => {
+    const free = list.filter((x) => !used.has(x.field.id) && !(medium && mediumUsed.has(x.field.id)));
+    if (!free.length) return null;
+    if (!scopeMods) return free[0].field;
+    const hit = free.find((x) => scopeMods.includes(x.mod))
+      || free.find((x) => !EXPERIENCE_MODULES.includes(x.mod))
+      || null;
+    return hit ? hit.field : null;
+  };
   // 给单个框找字段；pass='high' 只尝试精确/同义词（≥2.5），pass='medium' 只尝试宽容匹配（1.5）。
   // 返回是否命中。
   const assign = (box, pass) => {
     if (box.picker && !opts.pickers) return false;   // 默认跳过自定义下拉；开启后走下方严格匹配
+    const scopeMods = SCOPE_MODULES[contextScope(box.label)] || null;
     const parts = labelParts(box.label);
     const scored = [];
     for (const [nl, group] of fieldsByLabel) {
@@ -146,7 +185,16 @@ export function matchBoxes(boxes, profile, opts = {}) {
           }
         }
       }
-      if (score) scored.push({ group, score });
+      if (score) {
+        // 分区修正：指向本分区 +0.5（同分优先）；分区明确是别类经历时整组丢弃（含同义词命中），防跨段抢字段
+        if (scopeMods) {
+          const inScope = group.fields.some((x) => scopeMods.includes(x.mod));
+          const isExp = group.fields.some((x) => EXPERIENCE_MODULES.includes(x.mod));
+          if (inScope) score += 0.5;
+          else if (isExp) continue;
+        }
+        scored.push({ group, score });
+      }
     }
     scored.sort((a, b) => b.score - a.score);
     // 按置信度从高到低尝试：高置信候选被占满时降级到次高候选（如「获奖清单」被「奖项名称」
@@ -158,13 +206,17 @@ export function matchBoxes(boxes, profile, opts = {}) {
       let field = null;
       if (exclusive) {
         // 同名字段按出现次序消耗：第 N 个同名框 → 第 N 条记录的同名字段；用完后降级
-        field = cand.group.fields.find((f) => !used.has(f.id)) || null;
+        field = pickFrom(cand.group.fields, scopeMods, false);
         if (field) used.add(field.id);
       } else {
         // medium 不标记 used（高置信命中优先按序消耗）；但多个宽容命中框之间用 mediumUsed
-        // 去重，避免多段经历重复填第一条的值。单字段组例外：保留「确认邮箱」式重复填充。
-        field = cand.group.fields.find((f) => !used.has(f.id) && !mediumUsed.has(f.id))
-          || (cand.group.fields.length === 1 ? cand.group.fields[0] : null);
+        // 去重，避免多段经历重复填第一条的值。单字段组例外：保留「确认邮箱」式重复填充（仅无分区或非经历字段时）。
+        field = pickFrom(cand.group.fields, scopeMods, true);
+        if (!field) {
+          const allowReuse = (!scopeMods || !cand.group.fields.some((x) => EXPERIENCE_MODULES.includes(x.mod)))
+            && cand.group.fields.length === 1;
+          if (allowReuse) field = cand.group.fields[0].field;
+        }
         if (field) mediumUsed.add(field.id);
       }
       if (field) {

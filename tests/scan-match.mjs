@@ -313,5 +313,55 @@ check('sameValue 空值视为一致', sameValue('', 'x') === true && sameValue('
   check('开启 pickers：同义词命中的 picker 框参与匹配', syn.length === 1 && syn[0].field.label === '掌握程度', JSON.stringify(syn));
 }
 
+
+// 21. 分区上下文：「项目经历｜职责」限定到项目经历模块，不再被实习经历的「工作描述」抢走
+{
+  console.log('[分区上下文]');
+  const p = {
+    modules: [
+      { id: 'm1', name: '实习经历', tier: '常用', entries: [{ id: 'e1', title: '美团', fields: [field('w1', '工作描述', '实习工作描述')] }] },
+      { id: 'm2', name: '项目经历', tier: '常用', entries: [{ id: 'e2', title: '食算纪', fields: [field('q1', '项目职责', '项目职责内容'), field('q2', '项目描述', '项目描述内容')] }] },
+    ],
+  };
+  const ms = matchBoxes([box('项目经历｜职责'), box('项目经历｜项目介绍')], p);
+  const byBox = Object.fromEntries(ms.map((m) => [m.box.label, m.field.label]));
+  check('项目段「职责」→ 项目职责（不再命中工作描述）', byBox['项目经历｜职责'] === '项目职责', JSON.stringify(byBox));
+  check('项目段「项目介绍」→ 项目描述（同义词）', byBox['项目经历｜项目介绍'] === '项目描述', JSON.stringify(byBox));
+  const ms2 = matchBoxes([box('实习经历｜职责')], p);
+  check('实习段「职责」→ 工作描述', ms2[0]?.field.label === '工作描述', JSON.stringify(ms2.map((m) => m.field.label)));
+  // 项目段的多段消耗：第 2 个同名框吃第 2 条项目记录
+  const p2 = {
+    modules: [{ id: 'm', name: '项目经历', tier: '常用', entries: [
+      { id: 'e1', title: '项目一', fields: [field('a1', '项目描述', '描述一')] },
+      { id: 'e2', title: '项目二', fields: [field('a2', '项目描述', '描述二')] },
+    ] }],
+  };
+  const ms3 = matchBoxes([box('项目经历｜项目介绍'), box('项目经历｜项目介绍')], p2);
+  const vals = ms3.map((m) => m.field.value);
+  check('两个项目介绍框按序消耗两条记录', vals[0] === '描述一' && vals[1] === '描述二', JSON.stringify(vals));
+  // 项目段框不会错吃实习经历字段：项目记录用完后宁可留空
+  const ms4 = matchBoxes([box('项目经历｜项目介绍'), box('项目经历｜项目介绍'), box('项目经历｜项目介绍')], p2);
+  check('第 3 个框不吃别段字段（宁缺勿错）', ms4.length === 2, JSON.stringify(ms4.length));
+}
+
+// 22. 新同义词：项目名称/担任角色变体/成果变体
+{
+  console.log('[项目经历同义词扩容]');
+  const p = {
+    modules: [{ id: 'm', name: '项目经历', tier: '常用', entries: [{ id: 'e', title: '食算纪', fields: [
+      field('n1', '项目名称', '食算纪 AI 膳食分析小程序'),
+      field('n2', '担任角色', '独立负责人'),
+      field('n3', '成果与数据', '识膳 6 秒'),
+      field('n4', '技术栈 / 方法', '小程序+FastAPI'),
+    ] }] }],
+  };
+  const ms = matchBoxes([box('项目经历｜项目名称'), box('项目名称'), box('项目角色'), box('项目收获'), box('开发技术')], p);
+  const byBox = Object.fromEntries(ms.map((m) => [m.box.label, m.field.label]));
+  check('项目名称框命中（分区+无分区都行，单条记录只消耗一次）', byBox['项目经历｜项目名称'] === '项目名称' && byBox['项目名称'] === undefined, JSON.stringify(byBox));
+  check('项目角色 → 担任角色', byBox['项目角色'] === '担任角色', JSON.stringify(byBox));
+  check('项目收获 → 成果与数据', byBox['项目收获'] === '成果与数据', JSON.stringify(byBox));
+  check('开发技术 → 技术栈 / 方法', byBox['开发技术'] === '技术栈 / 方法', JSON.stringify(byBox));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

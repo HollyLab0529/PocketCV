@@ -70,9 +70,10 @@ body{font:13.5px/1.65 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;b
 /* 记录卡片 */
 .record{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;box-shadow:var(--shadow)}
 .record-top{display:flex;align-items:center;gap:8px}
-.record-toggle{display:flex;align-items:center;gap:8px;flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font:inherit;cursor:pointer;padding:2px 0;text-align:left}
+.record-toggle{display:flex;align-items:center;gap:8px;flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font:inherit;cursor:pointer;padding:2px 0;text-align:left;user-select:none}
 .record-index{font-size:11px;color:var(--muted);flex-shrink:0}
-.record-title{font-weight:600;flex-shrink:0}
+/* 标题可选中复制：按钮默认 user-select:none，这里对标题单独放开（折叠逻辑见 renderEntry 的选区判断） */
+.record-title{font-weight:600;flex-shrink:0;user-select:text;cursor:text}
 .record-summary{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .chevron{color:var(--muted);flex-shrink:0;transition:transform .15s ease}
 .record-toggle:hover .chevron{color:var(--ink)}
@@ -212,6 +213,10 @@ dialog.modal:not(:has(.modal-foot button)) .modal-foot{display:none}
 .modal-body.menu-list{display:flex;flex-direction:column;gap:5px;padding-top:10px}
 .modal-body.menu-list .btn{width:100%;justify-content:flex-start}
 .modal-body.menu-list .btn.danger{margin-top:7px}
+.menu-group-title{font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.08em;margin:9px 2px 1px;text-transform:uppercase}
+.modal-body.menu-list .menu-group-title:first-of-type{margin-top:2px}
+.fill-src{font-weight:400;color:var(--muted);font-size:11px}
+.seg-hint{margin:8px 0 0;padding:8px 10px;border-radius:var(--radius);background:color-mix(in srgb, #2563eb 10%, transparent);color:#1d4ed8;font-size:12px;line-height:1.6}
 .menu-caption{font-size:12px;color:var(--muted)}
 .full-text{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.75;max-height:40vh;overflow:auto;background:var(--bg);padding:12px;border-radius:var(--radius);margin:0}
 .ai-status{font-size:12px;color:var(--muted);margin:10px 0 0}

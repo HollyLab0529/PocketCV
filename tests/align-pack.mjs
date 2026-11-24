@@ -106,5 +106,25 @@ console.log('[alignStarterPack 迁移]');
   check('新资料证书模块字段齐备', !!fieldOf(certE, '证书名称') && !!fieldOf(certE, '获得时间') && !!fieldOf(certE, '说明'));
 }
 
+
+{
+  // 项目经历补「项目名称」：存量记录自动用记录标题填值
+  const proj = makeModule('项目经历');
+  const pe = makeEntry('食算纪 AI 膳食分析小程序', [makeField('项目描述', '', 'multiline')]);
+  proj.entries.push(pe);
+  const p = profileWith([proj]);
+  alignStarterPack(p);
+  check('项目经历补 项目名称（值=记录标题）', val(pe, '项目名称') === '食算纪 AI 膳食分析小程序', JSON.stringify(pe.fields.map((f) => f.label)));
+  check('项目名称排在字段首位', pe.fields[0].label === '项目名称');
+  // 用户已有项目名称字段时不覆盖
+  const proj2 = makeModule('项目经历');
+  const pe2 = makeEntry('另一个项目', [makeField('项目名称', '', 'text'), makeField('项目描述', '', 'multiline'), makeField('项目职责', '', 'multiline')]);
+  fieldOf(pe2, '项目名称').value = '我的自定义名称';
+  proj2.entries.push(pe2);
+  const p2 = profileWith([proj2]);
+  alignStarterPack(p2);
+  check('已有项目名称 → 不覆盖', val(pe2, '项目名称') === '我的自定义名称');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
